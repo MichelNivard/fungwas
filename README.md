@@ -3,7 +3,6 @@
 
 Flexible functional GWAS via RIF Quantile GWAS
 
----
 
 ## Overview
 
@@ -28,9 +27,8 @@ Core features:
 # Install from GitHub
 # install.packages("devtools")
 devtools::install_github("MichelNivard/fungwas")
-````
+```
 
----
 
 ## Example
 
@@ -63,7 +61,6 @@ fit <- qgwas_rif(
 head(fit$params)
 ```
 
----
 
 ## Functions
 
@@ -82,7 +79,6 @@ head(fit$params)
   * `.residualize_on_C()` — regress SNP or outcome on covariates.
   * `.nearPD_eig()` — repair correlation/covariance matrices.
 
----
 
 ## License
 
