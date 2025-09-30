@@ -1,8 +1,8 @@
 ---
-title: "Overview of fungwas: Functional GWAS via Quantile Regression and RIF"
+title: "Functional GWAS via Quantile Regression and RIF"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Overview of fungwas}
+  %\VignetteIndexEntry{Functional GWAS via Quantile Regression and RIF}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -17,7 +17,7 @@ knitr::opts_chunk$set(
 library(fungwas)
 library(ggplot2)
 set.seed(123)
-````
+```
 
 ## Motivation
 
@@ -207,7 +207,7 @@ Weight matrices (`W`) define how quantile slopes correspond to parameter changes
    ```r
    taus <- seq(0.1, 0.9, 0.05)
    stage1 <- quantile_gwas(Y, G, taus = taus, C = covariates)
-````
+  ```
 
 3. **Choose a weight system**:
 
@@ -243,7 +243,7 @@ Weight matrices (`W`) define how quantile slopes correspond to parameter changes
    head(t(fit$SE_params)) # Standard errors
    ```
 
----
+
 
 In practice:
 

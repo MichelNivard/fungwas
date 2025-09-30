@@ -1,8 +1,8 @@
 ---
-title: "Generic Weight Construction with `make_weights_generic()`"
+title: "Your custom functional GWAS with `make_weights_generic`"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Generic Weight Construction with make_weights_generic}
+  %\VignetteIndexEntry{Your custom functional GWAS with `make_weights_generic`}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -17,7 +17,7 @@ knitr::opts_chunk$set(
 library(fungwas)
 library(ggplot2)
 set.seed(123)
-````
+```
 
 ## Overview
 

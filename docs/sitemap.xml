@@ -1,0 +1,17 @@
+<urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
+<url><loc>/404.html</loc></url>
+<url><loc>/articles/fungwas-overview.html</loc></url>
+<url><loc>/articles/index.html</loc></url>
+<url><loc>/articles/weight-building.html</loc></url>
+<url><loc>/authors.html</loc></url>
+<url><loc>/index.html</loc></url>
+<url><loc>/reference/index.html</loc></url>
+<url><loc>/reference/make_fd_grad.html</loc></url>
+<url><loc>/reference/make_weight_vqtl.html</loc></url>
+<url><loc>/reference/make_weights_generic.html</loc></url>
+<url><loc>/reference/make_weights_normal_mixture.html</loc></url>
+<url><loc>/reference/make_weights_normal_mixture_vqtl.html</loc></url>
+<url><loc>/reference/param_gwas.html</loc></url>
+<url><loc>/reference/quantile_gwas.html</loc></url>
+</urlset>
+
