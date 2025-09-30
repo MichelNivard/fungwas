@@ -15,9 +15,10 @@ Core features:
 - Delta-method standard errors for mapped parameters.
 - Generic **tau → parameter mappings** via weight matrices (`W`).
 - Built-in weight constructors:
-  - `make_weights_two_normal()` — for a two-Normal mixture baseline.
-  - `make_weight_variance()` — for SNP effects on mean and variance of a Normal phenotype.
+  - `make_weights_normal_mixture()` — for a two-Normal mixture model with SNP effects on both means and mixture membership.
+  - `make_weight_vqtl()` — for SNP effects on mean and variance of a Normally distributed phenotype.
 - Support for custom `W` matrices, enabling user-defined parametric systems.
+- `qgwas_rif()` to run 1. the rif quantile the GWAS and 2. transform the results.
 
 ---
 
