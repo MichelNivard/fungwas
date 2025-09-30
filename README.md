@@ -1,23 +1,39 @@
-
 # fungwas
 
 Flexible functional GWAS via RIF Quantile GWAS
 
-
 ## Overview
 
-`fungwas` implements a **fast quantile GWAS pipeline** based on **Recentered Influence Functions (RIFs)** to facilitate you to estimate SNP effects on *distributional parameters* (e.g. means, variances, or mixture components) of paramteric models of the phenotype, rather than only on the mean.
+`fungwas` implements a **fast quantile GWAS pipeline** based on **Recentered Influence Functions (RIFs)**.  
+The resultas of the quantile GWAS, which might be of interestin anf of themselves, enable the second stage estimation of SNP effects on *distributional parameters* (e.g. means, variances, or mixture components) of parametric models of the phenotype, rather than only on the mean.
 
 Core features:
-- RIF-based quantile GWAS with **closed-form OLS slopes**.
+
+- RIF-based **quantile GWAS** with closed-form OLS slopes.
 - Delta-method based standard errors for estimated parameters.
 - Generic **tau → parameter mappings** via weight matrices (`W`).
 - Built-in weight constructors:
-  - `make_weights_normal_mixture()` — for a two-Normal mixture model with SNP effects on both means and mixture membership.
-  - `make_weight_vqtl()` — for SNP effects on mean and variance of a Normally distributed phenotype.
-- Support for custom `W` matrices, enabling user-defined parametric systems.
-- `qgwas_rif()` to run 1. the rif quantile the GWAS and 2. transform the results.
 
+  - `make_weights_normal_mixture()` —  
+    Construct weights for a **two-component Normal mixture** with SNP effects on the two component means.  
+    Optionally, include an effect on **class membership** (log-odds of being in component 1).  
+
+  - `make_weight_vqtl()` —  
+    Construct weights for SNP effects on the **mean** and **variance** of a single Normal distribution (variance QTL analysis).  
+
+  - `make_weights_normal_mixture_vqtl()` —  
+    Construct weights for a **two-component Normal mixture with vQTLs**.  
+    Supports SNP effects on:
+      * mixture membership (γ, log-odds of component 1),  
+      * both component means (μ₁, μ₂), and  
+      * both component standard deviations (σ₁, σ₂).  
+    This enables testing for **mixture vQTLs**, where genetic variants can affect variability differently across mixture components.  
+
+- Support for custom `W` matrices, enabling user-defined parametric systems.  
+
+- Two-stage workflow:
+  1. `quantile_gwas()` — run the RIF-based quantile GWAS (tau-slopes).
+  2. `param_gwas()` — map tau-slopes into parameters of a chosen parametric model.
 
 ## Installation
 
@@ -25,7 +41,7 @@ Core features:
 # Install from GitHub
 # install.packages("devtools")
 devtools::install_github("MichelNivard/fungwas")
-```
+````
 
 ## Example
 
@@ -40,11 +56,15 @@ taus <- seq(0.10, 0.90, by = 0.05)
 maf <- runif(P, 0.05, 0.5)
 G <- matrix(rbinom(N * P, 2, rep(maf, each = N)), N, P)
 z  <- rbinom(N, 1, 0.5)
-Y  <- rnorm(N, mean = ifelse(z==1, 3.0, 1.2), sd = ifelse(z==1, 0.7, 0.45))
+Y  <- rnorm(N, mean = ifelse(z == 1, 3.0, 1.2),
+               sd   = ifelse(z == 1, 0.7, 0.45))
 
-# Run with two_normal transform
-fit <- qgwas_rif(
-  Y, G, taus = taus,
+# Stage 1: tau-level GWAS
+stage1 <- quantile_gwas(Y, G, taus = taus)
+
+# Stage 2: map tau slopes into mixture parameters
+fit <- param_gwas(
+  stage1,
   transform = "two_normal",
   transform_args = list(
     p1 = 0.5, mu1 = 1.2, sd1 = 0.45,
@@ -54,29 +74,43 @@ fit <- qgwas_rif(
   se_mode = "diagonal"
 )
 
-# SNP effects on mixture means
+# SNP effects on mixture membership and means
 head(fit$params)
 ```
 
 ## Functions
 
-* **Main GWAS analysis**
+**Main workflow**
 
-  * `qgwas_rif()` — run RIF quantile GWAS and map the tau-slopes into model parameter estimates.
+* `quantile_gwas()` — run RIF quantile GWAS (tau-slopes).
+* `param_gwas()` — map per SNP tau-slopes into user-specified parametric model parameters.
 
-* **Weight builders**
+**Weight builders**
 
-  * `make_weights_normal_mixture()` — map tau-slopes (SNP effects on the quantiles) to effects on the means of two normal components (with optional membership).
-  * `make_weight_vqtl()` — map tau-slopes (SNP effects on the quantiles) to SNP effects on mean and variance of a normal distribution.
+These functions construct weight matrices (`W`) that map quantile‐level SNP effects (tau‐slopes) into parameters of specific parametric systems. They provide ready‐to‐use setups for three common use cases:
 
-* **Helpers (internal)**
+* `make_weights_normal_mixture()` —  
+  Map tau‐slopes to SNP effects on the means of two Normal components, with optional effects on **class membership** (log‐odds of belonging to component 1).  
 
-  * `.build_rif_matrix()` — build RIF(Y; tau).
-  * `.residualize_on_C()` — regress SNP or outcome on covariates.
-  * `.nearPD_eig()` — repair correlation/covariance matrices.
+* `make_weight_vqtl()` —  
+  Map tau‐slopes to SNP effects on the **mean** and **variance** of a single Normal distribution (variance QTL analysis).  
 
+* `make_weights_normal_mixture_vqtl()` —  
+  Map tau‐slopes to SNP effects on a **two‐component Normal mixture** with full flexibility:  
+  - class membership (γ),  
+  - component means (μ₁, μ₂),  
+  - component standard deviations (σ₁, σ₂).  
+  This enables mixture vQTL analysis, where genetic variants influence not just means but also variability across mixture components.  
+
+**Internal helpers**
+
+* `.build_rif_matrix()` — build RIF(Y; tau).
+* `.residualize_on_C()` — regress SNPs or outcome on covariates.
+* `.nearPD_eig()` — repair correlation/covariance matrices.
 
 ## License
 
-MIT License © [Your Name]
+MIT License ©  Michel Nivard & Fergus Hamilton
+
+
 

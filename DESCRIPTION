@@ -2,7 +2,7 @@ Package: fungwas
 Title: Flexible functional GWAS via RIF Quantile GWAS
 Version: 0.0.1
 Description: RIF-based quantile GWAS, with additional facilities to translate the result to a GWAS of a generic parametric system.
-Authors@R: person("Michel", "Nivard", email = "m.g.nivard@bristol.ac.uk", role = c("aut","cre"))
+Authors@R: c(person("Michel", "Nivard", email = "m.g.nivard@bristol.ac.uk", role = c("aut","cre")),person("Fergus", "Hamilton", email = "fh6520@bristol.ac.uk", role = c("aut")))
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)

@@ -19,10 +19,9 @@ colnames(G) <- paste0("SNP", seq_len(P))
 # -------------------------
 # 2. Define true effects
 # -------------------------
-
-beta_mu1_true   <- rnorm(P)/40
-beta_mu2_true   <- rnorm(P)/40
-beta_gamma_true <- rnorm(P)/40
+beta_mu1_true   <- rnorm(P) / 40
+beta_mu2_true   <- rnorm(P) / 40
+beta_gamma_true <- rnorm(P) / 40
 
 # -------------------------
 # 3. Baseline mixture
@@ -37,10 +36,8 @@ mu2 <- 3.0; sd2 <- 0.9
 gamma <- rep(qlogis(p1), N) + G %*% beta_gamma_true
 p1_i  <- plogis(gamma)  # individual-specific class prob
 
-# draw latent class
 class <- rbinom(N, 1, p1_i)
 
-# means for each person
 mu_i <- ifelse(class == 1,
                mu1 + G %*% beta_mu1_true,
                mu2 + G %*% beta_mu2_true)
@@ -50,29 +47,36 @@ sd_i <- ifelse(class == 1, sd1, sd2)
 Y <- rnorm(N, mean = mu_i, sd = sd_i)
 
 # -------------------------
-# 5. Run fgwas with two_normal transform
+# 5. Stage 1: run quantile GWAS
 # -------------------------
 taus <- seq(0.1, 0.9, 0.05)
 
-fit <- qgwas_rif(
+stage1 <- quantile_gwas(
   Y, G,
   taus = taus,
+  benchmark = FALSE,
+  verbose = FALSE
+)
+
+# -------------------------
+# 6. Stage 2: map to mixture parameters
+# -------------------------
+stage2 <- param_gwas(
+  stage1,
   transform = "two_normal",
   transform_args = list(
     p1 = p1, mu1 = mu1, sd1 = sd1,
     mu2 = mu2, sd2 = sd2,
     include_membership = TRUE
   ),
-  se_mode = "plugin_cor",
-  benchmark = FALSE,
-  verbose = FALSE
+  se_mode = "plugin_cor"
 )
 
 # -------------------------
-# 6. Collect results
+# 7. Collect results
 # -------------------------
-est <- t(fit$params)  # P x 3: gamma, beta_1, beta_2
-se  <- t(fit$SE_params)
+est <- t(stage2$params)   # P x 3: gamma, beta_1, beta_2
+se  <- t(stage2$SE_params)
 
 results <- data.frame(
   SNP            = colnames(G),
@@ -88,7 +92,7 @@ results <- data.frame(
 )
 
 # -------------------------
-# 7. Evaluate recovery
+# 8. Evaluate recovery
 # -------------------------
 cor_gamma <- cor(results$beta_gamma_true, results$beta_gamma_hat)
 cor_mu1   <- cor(results$beta_mu1_true, results$beta_mu1_hat)
@@ -99,7 +103,7 @@ cat(sprintf("Correlation (true vs est) mean comp 1:      %.3f\n", cor_mu1))
 cat(sprintf("Correlation (true vs est) mean comp 2:      %.3f\n", cor_mu2))
 
 # -------------------------
-# 8. Plots
+# 9. Plots
 # -------------------------
 p_gamma <- ggplot(results, aes(x = beta_gamma_true, y = beta_gamma_hat)) +
   geom_point(color = "purple", size = 2) +
