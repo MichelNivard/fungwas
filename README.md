@@ -27,7 +27,7 @@ Core features:
 ```r
 # Install from GitHub
 # install.packages("devtools")
-devtools::install_github("MichelNivard/fgwas")
+devtools::install_github("MichelNivard/fungwas")
 ````
 
 ---
@@ -35,7 +35,7 @@ devtools::install_github("MichelNivard/fgwas")
 ## Example
 
 ```r
-library(fgwas)
+library(fungwas)
 
 set.seed(42)
 N <- 5000; P <- 50
@@ -67,9 +67,9 @@ head(fit$params)
 
 ## Functions
 
-* **Main analysis**
+* **Main GWAS analysis**
 
-  * `qgwas_rif()` — run RIF quantile GWAS and map tau-slopes into parameter estimates.
+  * `qgwas_rif()` — run RIF quantile GWAS and map the tau-slopes into model parameter estimates.
 
 * **Weight builders**
 
