@@ -9,8 +9,8 @@ Flexible functional GWAS via RIF Quantile GWAS
 `fungwas` implements a **fast quantile GWAS pipeline** based on **Recentered Influence Functions (RIFs)** to facilitate you to estimate SNP effects on *distributional parameters* (e.g. means, variances, or mixture components) of paramteric models of the phenotype, rather than only on the mean.
 
 Core features:
-- RIF-based quantile GWAS with **closed-form OLS slopes** (no `rq()`, no GLS).
-- Delta-method standard errors for mapped parameters.
+- RIF-based quantile GWAS with **closed-form OLS slopes**.
+- Delta-method based standard errors for estimated parameters.
 - Generic **tau → parameter mappings** via weight matrices (`W`).
 - Built-in weight constructors:
   - `make_weights_normal_mixture()` — for a two-Normal mixture model with SNP effects on both means and mixture membership.
@@ -57,7 +57,6 @@ fit <- qgwas_rif(
 # SNP effects on mixture means
 head(fit$params)
 ```
-
 
 ## Functions
 
