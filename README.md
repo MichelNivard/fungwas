@@ -19,7 +19,6 @@ Core features:
 - Support for custom `W` matrices, enabling user-defined parametric systems.
 - `qgwas_rif()` to run 1. the rif quantile the GWAS and 2. transform the results.
 
----
 
 ## Installation
 
@@ -28,7 +27,6 @@ Core features:
 # install.packages("devtools")
 devtools::install_github("MichelNivard/fungwas")
 ```
-
 
 ## Example
 
