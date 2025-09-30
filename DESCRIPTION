@@ -11,3 +11,7 @@ Depends: R (>= 4.1.0)
 Recomend: ggplot2
 Imports: 
     stats
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

@@ -210,3 +210,92 @@ make_weights_normal_mixture_vqtl <- function(
   storage.mode(W) <- "double"
   W
 }
+
+
+#' Construct a finite-difference gradient function
+#'
+#' Builds a function that computes the numerical gradient of a distribution's CDF
+#' with respect to a single parameter using central differences.
+#'
+#' @param param Name of the parameter (string).
+#' @param dist_cdf Function (y, params) -> numeric. CDF of the distribution.
+#' @param eps Finite-difference step size (default 1e-6).
+#'
+#' @return A function with signature (y, params) that returns
+#'   dF(y; params) / d(param) for the given parameter.
+#'
+#' @examples
+#' dist_cdf <- function(y, params) pgamma(y, shape = params$shape, scale = params$scale)
+#' grad_shape <- make_fd_grad("shape", dist_cdf)
+#' grad_shape(1.5, list(shape = 2, scale = 1))
+#'
+#' @export
+make_fd_grad <- function(param, dist_cdf, eps = 1e-6) {
+  force(param); force(dist_cdf); force(eps)
+  function(y, params) {
+    params_up   <- params; params_up[[param]]   <- params_up[[param]] + eps
+    params_down <- params; params_down[[param]] <- params_down[[param]] - eps
+    (dist_cdf(y, params_up) - dist_cdf(y, params_down)) / (2 * eps)
+  }
+}
+
+#' Generic weight builder for parametric GWAS
+#'
+#' Constructs a tau-by-K weight matrix \eqn{W} for an arbitrary parametric family,
+#' mapping RIF tau-slopes \eqn{b(tau)} into parameter effects.
+#'
+#' @param taus Numeric vector of quantile levels (length T).
+#' @param q_tau Numeric vector of baseline quantiles at \code{taus} (length T).
+#' @param dist_cdf Function (y, params) -> numeric. CDF of the distribution.
+#' @param dist_pdf Function (y, params) -> numeric. PDF of the distribution.
+#' @param params Named list of baseline parameters (e.g., \code{list(mu = 0, sd = 1)}).
+#' @param grad_funcs Named list of gradient functions. Each element is a function
+#'   (y, params) -> numeric giving derivative of F(y; params) wrt that parameter.
+#'   Can be analytic, or constructed with \code{make_fd_grad()}.
+#' @param tiny Small positive floor to stabilize divisions (\eqn{f(q_tau)} clamped).
+#'
+#' @return A T x K numeric matrix of weights with columns named by parameter.
+#'
+#' @details
+#' The generic approach uses the identity:
+#' \deqn{W_j(tau) = - (dF/dtheta_j)(q_tau; params) / f(q_tau; params),}
+#' where \eqn{F} is the CDF and \eqn{f} is the PDF.
+#'
+#' @examples
+#' taus <- seq(0.1, 0.9, 0.1)
+#' y <- rnorm(5000, 2, 1)
+#' q_tau <- as.numeric(quantile(y, taus, type = 8))
+#'
+#' dist_cdf <- function(y, params) pnorm(y, mean = params$mu, sd = params$sd)
+#' dist_pdf <- function(y, params) dnorm(y, mean = params$mu, sd = params$sd)
+#' grad_mu  <- function(y, params) -dnorm((y - params$mu)/params$sd)/params$sd
+#' grad_sd  <- function(y, params) { z <- (y - params$mu)/params$sd; -(z*dnorm(z))/params$sd }
+#'
+#' W <- make_weights_generic(
+#'   taus, q_tau, dist_cdf, dist_pdf,
+#'   params = list(mu = 2, sd = 1),
+#'   grad_funcs = list(beta_mu = grad_mu, beta_sd = grad_sd)
+#' )
+#'
+#' @export
+make_weights_generic <- function(
+  taus, q_tau, dist_cdf, dist_pdf,
+  params, grad_funcs,
+  tiny = 1e-12
+) {
+  stopifnot(length(taus) == length(q_tau))
+  Tt <- length(taus)
+  f  <- pmax(dist_pdf(q_tau, params), tiny)
+
+  W <- matrix(NA_real_, nrow = Tt, ncol = length(grad_funcs))
+  colnames(W) <- names(grad_funcs)
+  rownames(W) <- paste0("tau", taus)
+
+  for (j in seq_along(grad_funcs)) {
+    gfun <- grad_funcs[[j]]
+    dF   <- vapply(q_tau, function(q) gfun(q, params), numeric(1))
+    W[, j] <- -dF / f
+  }
+  storage.mode(W) <- "double"
+  W
+}
