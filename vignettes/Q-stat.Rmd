@@ -113,8 +113,10 @@ fit_correct <- param_gwas(
 We now compare against a log-normal distribution. Here, effects on the meanlog implicitly alter both the mean and variance, but without an independent variance parameter.
 
 ```{r wrong-model}
-fitlog <- fitdist(Y, "lnorm")
-
+logY <- log(Y)
+fitlog <- list(
+  estimate = c(meanlog = mean(logY), sdlog = sd(logY))
+)
 q_tau <- as.numeric(quantile(Y, taus, type = 8))
 
 dist_cdf <- function(y, params) plnorm(y, meanlog = params$meanlog, sdlog = params$sdlog)
