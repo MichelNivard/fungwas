@@ -131,17 +131,18 @@ Don’t try to load all SNPs across all chromosomes at once. Pick a **chunking u
 
 **Heuristics**:
 
-* Memory for `G` ≈ N × P × 8 bytes (double). For `N=200k, P=50k` ⇒ ~80 GB (too big).
 
-  * Use `single` precision (`storage.mode(G) <- "double"` is required in our code though), or process smaller P per chunk.
-  * Consider **bigsnpr** for memory-mapped matrices if extremely large.
+* Consider **bigsnpr** for memory-mapped matrices if extremely large.
+
 * Time scales with `O(N × P × |taus|)` inside `quantile_gwas()`.
+
 * A practical starting point: **N up to 200k, P ≈ 10k–50k per chunk, |taus| ≈ 15–25**.
+
 * Parallelize across chunks (not within) to keep code simple.
 
 ---
 
-## A solid end-to-end example (one chunk)
+## A sketch of an end-to-end example (one chunk)
 
 Assume you’ve loaded **one region** into `G`, plus `Y` and `C`.
 
@@ -288,8 +289,6 @@ geno <- seqminer::tabix.read(vcf_file, region)
 ```
 
 This route is great if you already distribute data as indexed VCF per chromosome.
-
----
 
 ## Practical notes
 
