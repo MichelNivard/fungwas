@@ -1,6 +1,8 @@
 <urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
 <url><loc>https://michelnivard.github.io/fungwas/404.html</loc></url>
+<url><loc>https://michelnivard.github.io/fungwas/LICENSE-text.html</loc></url>
 <url><loc>https://michelnivard.github.io/fungwas/articles/GWAS-in-R.html</loc></url>
+<url><loc>https://michelnivard.github.io/fungwas/articles/Q-stat.html</loc></url>
 <url><loc>https://michelnivard.github.io/fungwas/articles/fungwas-overview.html</loc></url>
 <url><loc>https://michelnivard.github.io/fungwas/articles/index.html</loc></url>
 <url><loc>https://michelnivard.github.io/fungwas/articles/weight-building.html</loc></url>

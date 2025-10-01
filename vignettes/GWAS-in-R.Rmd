@@ -1,10 +1,10 @@
 ---
-title: "How to do GWAS if R (plink files)"
+title: "GWAS file handling in R"
 output: rmarkdown::html_vignette
-vignette: >
-%\VignetteIndexEntry{How to do GWAS if R (plink files)}
-%\VignetteEngine{knitr::rmarkdown}
-\usepackage[utf8]{inputenc}
+vignette: |
+  %\VignetteIndexEntry{GWAS file handling in R}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
 ---
 
 

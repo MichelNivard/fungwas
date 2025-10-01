@@ -1,8 +1,7 @@
-
 ---
 title: "Model Fit Diagnostics with the Q Statistic"
 output: rmarkdown::html_vignette
-vignette: >
+vignette: |
   %\VignetteIndexEntry{Model Fit Diagnostics with the Q Statistic}
   %\VignetteEngine{knitr::rmarkdown}
   \usepackage[utf8]{inputenc}

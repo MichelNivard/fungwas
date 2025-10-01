@@ -1,7 +1,7 @@
 ---
 title: "Functional GWAS via Quantile Regression and RIF"
 output: rmarkdown::html_vignette
-vignette: >
+vignette: |
   %\VignetteIndexEntry{Functional GWAS via Quantile Regression and RIF}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}

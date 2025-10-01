@@ -1,7 +1,7 @@
 ---
 title: "Your custom functional GWAS with `make_weights_generic`"
 output: rmarkdown::html_vignette
-vignette: >
+vignette: |
   %\VignetteIndexEntry{Your custom functional GWAS with `make_weights_generic`}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
