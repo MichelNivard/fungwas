@@ -207,17 +207,8 @@ IID</strong>.</li>
 </ul>
 <p><strong>Heuristics</strong>:</p>
 <ul>
-<li>
-<p>Memory for <code>G</code> ≈ N × P × 8 bytes (double). For
-<code>N=200k, P=50k</code> ⇒ ~80 GB (too big).</p>
-<ul>
-<li>Use <code>single</code> precision
-(<code>storage.mode(G) &lt;- "double"</code> is required in our code
-though), or process smaller P per chunk.</li>
-<li>Consider <strong>bigsnpr</strong> for memory-mapped matrices if
-extremely large.</li>
-</ul>
-</li>
+<li><p>Consider <strong>bigsnpr</strong> for memory-mapped matrices if
+extremely large.</p></li>
 <li><p>Time scales with <code>O(N × P × |taus|)</code> inside
 <code><a href="../reference/quantile_gwas.html">quantile_gwas()</a></code>.</p></li>
 <li><p>A practical starting point: <strong>N up to 200k, P ≈ 10k–50k per
@@ -228,7 +219,7 @@ simple.</p></li>
 <hr>
 </div>
 <div class="section level2">
-<h2 id="a-solid-end-to-end-example-one-chunk">A solid end-to-end example (one chunk)<a class="anchor" aria-label="anchor" href="#a-solid-end-to-end-example-one-chunk"></a>
+<h2 id="a-sketch-of-an-end-to-end-example-one-chunk">A sketch of an end-to-end example (one chunk)<a class="anchor" aria-label="anchor" href="#a-sketch-of-an-end-to-end-example-one-chunk"></a>
 </h2>
 <p>Assume you’ve loaded <strong>one region</strong> into <code>G</code>,
 plus <code>Y</code> and <code>C</code>.</p>
@@ -378,7 +369,6 @@ directly:</p>
 <span><span class="co"># Build SNP meta from INFO/ID/POS/REF/ALT in 'geno'</span></span></code></pre></div>
 <p>This route is great if you already distribute data as indexed VCF per
 chromosome.</p>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="practical-notes">Practical notes<a class="anchor" aria-label="anchor" href="#practical-notes"></a>
