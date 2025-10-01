@@ -1,6 +1,4 @@
-# fungwas
-
-Flexible functional GWAS via RIF Quantile GWAS
+# fungwas: Flexible functional GWAS via RIF Quantile GWAS
 
 ## Overview
 
