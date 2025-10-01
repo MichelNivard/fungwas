@@ -1,322 +1,118 @@
 ---
-title: "tips & ideas for GWAS in R"
+title: "A GWAS Example on plink files"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{tips & ideas for GWAS in R}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
+%\VignetteIndexEntry{A GWAS Example on plink files}
+%\VignetteEngine{knitr::rmarkdown}
+\usepackage[utf8]{inputenc}
 ---
 
-```{r, include = FALSE}
+
+```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
 )
 library(fungwas)
+library(bigsnpr)
+set.seed(123)
 ```
 
+# Overview
 
-## Why this vignette?
-
-You’ve got genotypes (SNPs), covariates (age/sex/PCs), and a phenotype. You want to:
-
-1. Load a chunk of variants into R without blowing up memory
-2. Keep the SNP metadata (ID, chr, bp, alleles) **near the columns**
-3. Run `quantile_gwas()` once per chunk, then reuse it with different weight systems via `param_gwas()`
-4. Optionally parallelize across chunks
-
-This vignette shows pragmatic routes from **PLINK/VCF → R → fungwas**, with minimal fuss.
+In this vignette we go trough running a **Quantile GWAS** directly on genotypes from a PLINK `.fam/.bim/.bed` dataset, using `bigsnpr` to load the genotypes and `fungwas` for the quantile regression workflow.
 
 
+# Example 2: GWAS from PLINK files
 
-## File formats and quick import options
+Here we demonstrate how to run a quantile GWAS using **real PLINK genotype files** with `bigsnpr`. For speed, we only analyze the first 1000 SNPs. In practice you can chunk the genome into manageable subsets.
 
-* **PLINK bed/bim/fam**: classical; use PLINK2 to slice/export easily.
-* **VCF/BCF**: also fine; use `seqminer::tabix.read()` or convert to PLINK2 PGEN/RAW first.
-* **Direct R import**:
-
-  * `genio` reads bed/bim/fam into R objects.
-  * `seqminer` reads bgzipped VCF by region (Tabix).
-  * `bigstatsr/bigsnpr` are excellent for very large data (memory-mapped); optional.
-
-Pick one route and stay consistent.
-
----
-
-## Minimal PLINK2 route (recommended)
-
-Suppose you have chromosome 1 in PLINK binary:
-`genotype_chr1.fam`, `genotype_chr1.bim`, `genotype_chr1.bed`.
-
-To extract a **3 Mb region** (1–3,000,000 bp) as plain text dosages:
-
-```bash
-plink2 \
-  --bfile genotype_chr1 \
-  --chr 1 \
-  --from-bp 1 \
-  --to-bp 3000000 \
-  --export A \
-  --out genotype_scatter_chr1_1_3000000
-```
-
-This creates `genotype_scatter_chr1_1_3000000.raw` containing additive dosages (REF-coded by default; change with `--export-allele` if needed). The `.raw` columns look like:
-
-* First columns: `FID IID PAT MAT SEX PHENOTYPE`
-* Then one column per SNP, typically named like `SNPID_A1` (PLINK appends the counted allele)
-
-**Load the `.raw` file in R**:
-
-```{r eval=FALSE}
-library(data.table)
-raw <- fread("genotype_scatter_chr1_1_3000000.raw")
-head(raw[, 1:8])
-```
-
-You can peel off IDs and convert the genotype columns to a numeric matrix:
-
-```{r eval=FALSE}
-id_cols <- c("FID","IID","PAT","MAT","SEX","PHENOTYPE")
-geno_dt <- raw[, !..id_cols]
-G <- as.matrix(geno_dt)               # N x P
-
-# keep SNP column names (often "rsid_A1")
-snp_cols <- colnames(geno_dt)
-```
-
-> **Tip**: Keep a **SNP metadata table** alongside columns (from `.bim` or your own index):
->
-> ```r
-> bim <- fread("genotype_chr1.bim", col.names = c("chr","snp","cm","bp","a1","a2"))
-> # Restrict to region and in the same order as 'snp_cols'
-> bim_sub <- bim[bp >= 1 & bp <= 3e6]
-> # Match to snp_cols after PLINK’s allele suffixing
-> # e.g., map from 'snp' + '_A1' to column names
-> bim_sub[, plink_col := paste0(snp, "_", a1)]
-> bim_sub <- bim_sub[match(snp_cols, plink_col)]
-> stopifnot(all(bim_sub$plink_col == snp_cols))  # sanity
-> ```
-
-This ensures **SNP info stays aligned** with the genotype matrix columns.
-
----
-
-## Covariates and PCs
-
-* **From FAM**: you get `IID`, `SEX`, and a placeholder phenotype.
-* **PCs**: read from a separate file and **merge by IID**.
-* Ensure the **row order of `G`, covariates `C`, and phenotype `Y` is identical**.
-
-```{r eval=FALSE}
-fam <- fread("genotype_chr1.fam", col.names = c("FID","IID","PAT","MAT","SEX","PHENO"))
-pcs <- fread("pcs.tsv")   # columns: IID, PC1..PC20
-covs <- merge(fam[, .(IID, SEX)], pcs, by = "IID", all.x = TRUE)
-
-# Reorder covs to match the .raw row order (IID in 'raw')
-covs <- covs[match(raw$IID, covs$IID)]
-stopifnot(all(covs$IID == raw$IID))
-
-# Build C matrix: intercept is handled internally, so do not include it here
-C <- as.matrix(covs[, .(SEX, PC1, PC2, PC3, PC4, PC5)])
-```
-
----
-
-## Chunking strategy
-
-Don’t try to load all SNPs across all chromosomes at once. Pick a **chunking unit**:
-
-* **By region** (e.g. 3–10 Mb windows)
-* **By SNP count** (e.g. 25k–100k SNPs per chunk)
-
-**Heuristics**:
+you can download plinkfiles to testun [here](https://www.dropbox.com/scl/fi/41ep8xbdccp9xw5epim19/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing.zip?rlkey=tklapxwypeg79b1sx03o6ycs7&dl=1) its about 200 Mb of files.
 
 
-* Consider **bigsnpr** for memory-mapped matrices if extremely large.
+```{r gwas-example, eval=FALSE}
+# ============================================================
+# Load PLINK bed/bim/fam with bigsnpr
+# Simulate phenotype
+# Run Quantile GWAS with fungwas
+# ============================================================
 
-* Time scales with `O(N × P × |taus|)` inside `quantile_gwas()`.
+plink_prefix <- "/path/to/your-plink/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing"   # without extension
 
-* A practical starting point: **N up to 200k, P ≈ 10k–50k per chunk, |taus| ≈ 15–25**.
+# Convert to .rds format, runonly  once
+snp_readBed(paste0(plink_prefix, ".bed"))   
+obj.bigSNP <- snp_attach(paste0(plink_prefix, ".rds"))
 
-* Parallelize across chunks (not within) to keep code simple.
+G   <- obj.bigSNP$genotypes     # Filebacked Big Matrix
+G   <- snp_fastImputeSimple(G)  # quick mean imputation, for the benefit of simulation
+CHR <- obj.bigSNP$map$chromosome
+POS <- obj.bigSNP$map$physical.pos
+SNP <- obj.bigSNP$map$marker.ID
+N   <- nrow(G)
+P   <- ncol(G)
 
----
+cat("Loaded", N, "individuals and", P, "SNPs\\n")
 
-## A sketch of an end-to-end example (one chunk)
+# Simulate phenotype
+target_snps <- sample(P, 5)
+beta        <- rnorm(5, 0, 0.25)
+genetic     <- big_prodVec(G, beta, ind.col = target_snps)
+y <- as.numeric(scale(genetic + rnorm(N)))
 
-Assume you’ve loaded **one region** into `G`, plus `Y` and `C`.
-
-```{r eval=FALSE}
-# 1) Choose quantiles and run Stage 1 once per chunk
-taus  <- seq(0.10, 0.90, by = 0.05)
+# Stage 1: Quantile GWAS
+taus   <- seq(0.1, 0.9, 0.1)
 stage1 <- quantile_gwas(
-  Y, G,
+  Y = y,
+  G = as.matrix(G[, 1:1000]),   # only first 1000 SNPs here
   taus = taus,
-  C = C,
-  residualize_Y = FALSE,   # default: only SNPs are residualized on C
-  benchmark = TRUE
+  benchmark = FALSE,
+  verbose = TRUE
 )
 
-# 2a) Map to mean/variance (vQTL)
-W_var <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
-fit_var <- param_gwas(stage1, transform = "custom_W", transform_args = list(W = W_var),
-                      se_mode = "plugin_cor")
+# Stage 2: Parametric mapping (vQTL)
+W_vqtl <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(y), sd = sd(y))
 
-# 2b) Map to two-component mixture (means + membership)
-fit_mix <- param_gwas(
+fit <- param_gwas(
   stage1,
-  transform = "two_normal",
-  transform_args = list(
-    p1 = 0.5, mu1 = 1.2, sd1 = 0.45,
-    mu2 = 3.0, sd2 = 0.7,
-    include_membership = TRUE
-  ),
-  se_mode = "diagonal"
+  transform = "custom_W",
+  transform_args = list(W = W_vqtl),
+  se_mode = "dwls"
 )
 
-# 3) Keep SNP info alongside results
-est_var <- data.table(bim_sub[, .(chr, snp, bp, a1, a2)], t(fit_var$params))
-est_mix <- data.table(bim_sub[, .(chr, snp, bp, a1, a2)], t(fit_mix$params))
-
-# Example preview
-head(est_var)
-head(est_mix)
-```
-
-**Why two stages?** You can reuse `stage1` to test *multiple* parametric systems (e.g., vQTL, mixture, log-normal) **without re-running** the heavy SNP × τ loop.
-
----
-
-## Parallelism across chunks
-
-The simplest approach: **split the genome** into chunks (by region or by SNP count), and run each chunk in a separate process. Here are two lightweight options.
-
-### Option A: `future.apply`
-
-```{r eval=FALSE}
-library(future.apply)
-plan(multisession, workers = 4)  # or multicore on Linux
-
-chunk_specs <- data.table(
-  chr = 1,
-  from_bp = seq(1, 2.5e8, by = 5e6),
-  to_bp   = pmin(seq(5e6, 2.5e8 + 5e6, by = 5e6), 2.5e8)
+# Collect results
+res <- data.frame(
+  SNP = SNP[1:1000],
+  CHR = CHR[1:1000],
+  POS = POS[1:1000],
+  beta_mu = fit$params["beta_mu", ],
+  beta_sd = fit$params["beta_sigma2", ],
+  se_mu   = fit$SE_params["beta_mu", ],
+  se_sd   = fit$SE_params["beta_sigma2", ],
+  Q       = fit$Q
 )
 
-run_chunk <- function(chr, from_bp, to_bp) {
-  # 1) Use plink2 to export .raw for the region (system call)
-  outpref <- sprintf("chr%s_%d_%d", chr, from_bp, to_bp)
-  cmd <- sprintf("plink2 --bfile genotype_chr%s --chr %s --from-bp %d --to-bp %d --export A --out %s",
-                 chr, chr, from_bp, to_bp, outpref)
-  system(cmd)
+head(res)
 
-  # 2) Read .raw, .bim subset; build G and SNP meta
-  raw  <- fread(paste0(outpref, ".raw"))
-  fam  <- fread(paste0("genotype_chr", chr, ".fam"),
-                col.names = c("FID","IID","PAT","MAT","SEX","PHENO"))
-  bim  <- fread(paste0("genotype_chr", chr, ".bim"),
-                col.names = c("chr","snp","cm","bp","a1","a2"))
-
-  # region meta
-  meta <- bim[bp >= from_bp & bp <= to_bp]
-
-  # genotype matrix
-  id_cols <- c("FID","IID","PAT","MAT","SEX","PHENOTYPE")
-  geno_dt <- raw[, !..id_cols]
-  G <- as.matrix(geno_dt)
-  snp_cols <- colnames(geno_dt)
-
-  # align meta to columns (assuming PLINK col names as snp_a1)
-  meta[, plink_col := paste0(snp, "_", a1)]
-  meta <- meta[match(snp_cols, plink_col)]
-  stopifnot(all(meta$plink_col == snp_cols))
-
-  # 3) Merge PCs/covariates and phenotype in the same row order as 'raw'
-  pcs  <- fread("pcs.tsv")    # has IID, PC1..PC20
-  covs <- merge(fam[, .(IID, SEX)], pcs, by = "IID", all.x = TRUE)
-  covs <- covs[match(raw$IID, covs$IID)]
-  C <- as.matrix(covs[, .(SEX, PC1, PC2, PC3, PC4, PC5)])
-
-  # 4) Pull phenotype Y in the same order; replace with your source
-  pheno <- fread("pheno.tsv") # IID, Y
-  pheno <- pheno[match(raw$IID, pheno$IID)]
-  Y <- pheno$Y
-
-  # 5) Quantile GWAS and one mapping (you can add more)
-  taus   <- seq(0.10, 0.90, 0.05)
-  stage1 <- quantile_gwas(Y, G, taus = taus, C = C, benchmark = FALSE)
-
-  W_var  <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
-  fit    <- param_gwas(stage1, transform = "custom_W", transform_args = list(W = W_var))
-
-  # 6) Return a data.table with meta + estimates
-  out <- data.table(meta[, .(chr, snp, bp, a1, a2)], t(fit$params))
-  out[]
-}
-
-results_list <- future_mapply(
-  run_chunk,
-  chr = chunk_specs$chr,
-  from_bp = chunk_specs$from_bp,
-  to_bp = chunk_specs$to_bp,
-  SIMPLIFY = FALSE
+# Simple Manhattan-style plot for mean effect
+par(mar = c(4,4,2,1), bg = "white")
+plot(
+  res$POS,
+  -log10(pchisq((res$beta_mu/res$se_mu)^2, df=1, lower.tail = FALSE)),
+  col = res$CHR, pch = 20, cex = 0.6,
+  xlab = "Genomic position", ylab = "-log10(p)",
+  main = "Quantile GWAS (mu effect)"
 )
-
-results <- rbindlist(results_list, use.names = TRUE, fill = TRUE)
-fwrite(results, "fungwas_vqtl_results.tsv")
 ```
 
-### Option B: `foreach` + `doParallel`
 
-Works similarly; pick whichever your cluster policy prefers.
+# Chunking the GWAS
 
----
+In this example we only analyzed the first 1000 SNPs for speed. In practice, you can loop over chunks of SNPs and process them in parallel using `future.apply` or `big_apply` from **bigsnpr**. The workflow is the same:
 
-## VCF input alternative (no PLINK2)
+1. Select a block of SNPs from the `G` matrix.
+2. Run `quantile_gwas()` on that block.
+3. Map results with `param_gwas()`.
+4. Save results per chunk, then combine.
 
-If you have bgzipped VCF/BCF with Tabix index, you can slice regions directly:
-
-```{r eval=FALSE}
-library(seqminer)
-
-region <- "1:1-3000000"
-vcf_file <- "chr1.vcf.bgz"
-
-# dosage extraction (depends on FORMAT fields and your VCF)
-geno <- seqminer::tabix.read(vcf_file, region)
-# Convert to an N x P dosage matrix 'G' for your samples
-# Build SNP meta from INFO/ID/POS/REF/ALT in 'geno'
-```
-
-This route is great if you already distribute data as indexed VCF per chromosome.
-
-## Practical notes
-
-* **Allele coding**: PLINK2 `--export A` counts the **REF** allele by default. If you prefer effect allele to be ALT, set `--export-allele` accordingly, and keep that consistent when interpreting signs.
-* **Sample order**: Always reorder covariates and phenotype to match the genotype rows.
-* **QC**: This vignette assumes you’ve already done SNP/sample QC (missingness, MAF, HWE, ancestry, duplicates).
-* **Chunk size**: Aim for total memory ( \approx ) 2–8 GB per worker to be safe; test on one chunk and scale.
-* **Stage reuse**: Save `stage1` objects per chunk (e.g. `saveRDS(stage1, "chunkX_stage1.rds")`) so you can rerun different `param_gwas()` analyses later without repeating Stage 1.
-
----
-
-## Interpreting results
-
-* `quantile_gwas()` returns **τ-slope matrices** (`Q_slope`, `SE_tau`) and baseline quantiles/densities.
-* `param_gwas()` returns per-SNP effects on your chosen parameters and delta-method SEs:
-
-  * vQTL: `beta_mu`, `beta_sigma2`
-  * Mixture: `gamma` (membership), `beta_1`, `beta_2` (component means)
-  * Mixture vQTL: add `beta_sigma1`, `beta_sigma2`
-* Keep a joined table **[SNP meta | parameter estimates | SEs]** for clean downstream work.
-
----
-
-## Summary
-
-* Use PLINK2 (or Tabix/VCF) to export **chunked** genotype matrices.
-* Keep SNP metadata aligned with columns.
-* Run **Stage 1 once per chunk**; reuse for multiple parameter systems.
-* Parallelize **across chunks**; keep each worker’s memory footprint modest.
-* Store results with SNP meta for painless interpretation and plotting.
+This strategy scales the quantile GWAS to genome-wide data.
 
