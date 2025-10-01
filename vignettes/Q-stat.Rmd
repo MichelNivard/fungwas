@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 )
 library(fungwas)
 set.seed(123)
-````
+```
 
 # Overview
 
