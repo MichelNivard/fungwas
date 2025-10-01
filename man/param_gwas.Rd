@@ -33,8 +33,13 @@ param_gwas(
 \item{plugin_R}{Optional T x T correlation matrix for \code{"plugin_cor"}.}
 }
 \value{
-A list with elements:
-\item \code{W}, \code{A}, \code{params}, \code{SE_params}, \code{Q}, \code{df}.
+A list with the following elements:
+\item{\code{W}}{Weight matrix used in the parametric mapping.}
+\item{\code{A}}{Mapping matrix (tau-by-parameter).}
+\item{\code{params}}{Estimated parameter values.}
+\item{\code{SE_params}}{Delta-method standard errors of parameter estimates.}
+\item{\code{Q}}{Vector of Q statistics per SNP (if computed).}
+\item{\code{df}}{Degrees of freedom for Q statistic.}
 }
 \description{
 Maps quantile-level GWAS results into effects on user-specified
