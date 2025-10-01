@@ -32,8 +32,6 @@ so long as you can supply:
 
 This vignette illustrates its use with a **log-normal phenotype**.
 
----
-
 ## Example: Log-Normal GWAS
 
 We simulate phenotypes from a log-normal distribution with SNP effects on both
@@ -63,7 +61,7 @@ sdlog   <- pmax(sdlog0 + G %*% beta_sdlog_true, 0.1)
 Y <- rlnorm(N, meanlog = meanlog, sdlog = sdlog)
 ```
 
----
+
 
 ## Step 1: Define distribution and gradients
 
@@ -84,7 +82,6 @@ grad_sdlog <- function(y, params) {
 }
 ```
 
----
 
 ## Step 2: Build weights
 
@@ -106,7 +103,6 @@ head(W)
 
 Each column of `W` corresponds to the mapping from quantile slopes into parameter-space effects.
 
----
 
 ## Step 3: Run two-stage GWAS
 
@@ -126,7 +122,6 @@ fit <- param_gwas(
 head(t(fit$params))
 ```
 
----
 
 ## Step 4: Compare to true effects
 
@@ -176,5 +171,4 @@ Analytic and FD versions give nearly identical results, making FD a convenient o
 * You provide a CDF, PDF, and parameter gradients (either analytic or via `make_fd_grad()`).
 * This generalizes RIF-based GWAS to models far beyond simple mean effects.
 
-```
 
