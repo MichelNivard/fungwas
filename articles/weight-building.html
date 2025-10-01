@@ -39,6 +39,7 @@
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="../articles/fungwas-overview.html">Functional GWAS via Quantile Regression and RIF</a></li>
+    <li><a class="dropdown-item" href="../articles/GWAS-in-R.html">tips &amp; ideas for GWAS in R</a></li>
     <li><a class="dropdown-item" href="../articles/weight-building.html">Your custom functional GWAS with `make_weights_generic`</a></li>
   </ul>
 </li>
@@ -89,7 +90,6 @@ or finite-difference).</li>
 </ul>
 <p>This vignette illustrates its use with a <strong>log-normal
 phenotype</strong>.</p>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="example-log-normal-gwas">Example: Log-Normal GWAS<a class="anchor" aria-label="anchor" href="#example-log-normal-gwas"></a>
@@ -119,7 +119,6 @@ parameters.</p>
 <span></span>
 <span><span class="co"># Phenotype</span></span>
 <span><span class="va">Y</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Lognormal.html" class="external-link">rlnorm</a></span><span class="op">(</span><span class="va">N</span>, meanlog <span class="op">=</span> <span class="va">meanlog</span>, sdlog <span class="op">=</span> <span class="va">sdlog</span><span class="op">)</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="step-1-define-distribution-and-gradients">Step 1: Define distribution and gradients<a class="anchor" aria-label="anchor" href="#step-1-define-distribution-and-gradients"></a>
@@ -140,7 +139,6 @@ parameters are expressed in quantile space.</p>
 <span>  <span class="va">z</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="va">y</span><span class="op">)</span> <span class="op">-</span> <span class="va">params</span><span class="op">$</span><span class="va">meanlog</span><span class="op">)</span> <span class="op">/</span> <span class="va">params</span><span class="op">$</span><span class="va">sdlog</span></span>
 <span>  <span class="op">-</span><span class="op">(</span><span class="va">z</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">dnorm</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span> <span class="op">/</span> <span class="va">params</span><span class="op">$</span><span class="va">sdlog</span></span>
 <span><span class="op">}</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="step-2-build-weights">Step 2: Build weights<a class="anchor" aria-label="anchor" href="#step-2-build-weights"></a>
@@ -167,7 +165,6 @@ parameters are expressed in quantile space.</p>
 <span><span class="co">#&gt; tau0.35    1.4923085 -0.2124957</span></span></code></pre></div>
 <p>Each column of <code>W</code> corresponds to the mapping from
 quantile slopes into parameter-space effects.</p>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="step-3-run-two-stage-gwas">Step 3: Run two-stage GWAS<a class="anchor" aria-label="anchor" href="#step-3-run-two-stage-gwas"></a>
@@ -195,7 +192,6 @@ using <code><a href="../reference/param_gwas.html">param_gwas()</a></code> with 
 <span><span class="co">#&gt; SNP4  0.021612584 -0.02085744</span></span>
 <span><span class="co">#&gt; SNP5  0.045506929 -0.01453348</span></span>
 <span><span class="co">#&gt; SNP6  0.013347512 -0.03759752</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="step-4-compare-to-true-effects">Step 4: Compare to true effects<a class="anchor" aria-label="anchor" href="#step-4-compare-to-true-effects"></a>
@@ -253,7 +249,6 @@ via <code><a href="../reference/make_fd_grad.html">make_fd_grad()</a></code>).</
 <li>This generalizes RIF-based GWAS to models far beyond simple mean
 effects.</li>
 </ul>
-<p>```</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
