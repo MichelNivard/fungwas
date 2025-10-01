@@ -70,7 +70,7 @@ taus <- seq(0.1, 0.9, 0.05)
 stage1 <- quantile_gwas(Y, G, taus = taus)
 
 # Stage 2: mean/variance mapping (vQTL weights)
-W <- make_weight_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
+W <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
 fit <- param_gwas(stage1, transform = "custom_W", transform_args = list(W = W))
 
 head(t(fit$params))
@@ -97,7 +97,7 @@ Y <- rnorm(N, mean = mu, sd = sqrt(sigma2))
 taus <- seq(0.05, 0.95, 0.05)
 stage1 <- quantile_gwas(Y, G, taus = taus)
 
-W_var <- make_weight_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
+W_var <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
 fit_var <- param_gwas(stage1, transform = "custom_W", transform_args = list(W = W_var))
 
 head(t(fit_var$params))
@@ -173,7 +173,7 @@ Weight matrices (`W`) define how quantile slopes correspond to parameter changes
 `fungwas` provides several ready-made constructors:
 
 * **Variance GWAS (vQTLs)**  
-  * `make_weight_vqtl()` — use when you want SNP effects on the *mean* and *variance* of a Normal trait.  
+  * `make_weights_vqtl()` — use when you want SNP effects on the *mean* and *variance* of a Normal trait.  
   * Example: height variability, BMI dispersion.
 
 * **Mixture GWAS**  
@@ -213,7 +213,7 @@ Weight matrices (`W`) define how quantile slopes correspond to parameter changes
    * If mean & variance:
 
      ```r
-     W <- make_weight_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
+     W <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
      ```
    * If two-component mixture:
 

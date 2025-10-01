@@ -158,7 +158,7 @@ stage1 <- quantile_gwas(
 )
 
 # 2a) Map to mean/variance (vQTL)
-W_var <- make_weight_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
+W_var <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
 fit_var <- param_gwas(stage1, transform = "custom_W", transform_args = list(W = W_var),
                       se_mode = "plugin_cor")
 
@@ -246,7 +246,7 @@ run_chunk <- function(chr, from_bp, to_bp) {
   taus   <- seq(0.10, 0.90, 0.05)
   stage1 <- quantile_gwas(Y, G, taus = taus, C = C, benchmark = FALSE)
 
-  W_var  <- make_weight_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
+  W_var  <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
   fit    <- param_gwas(stage1, transform = "custom_W", transform_args = list(W = W_var))
 
   # 6) Return a data.table with meta + estimates

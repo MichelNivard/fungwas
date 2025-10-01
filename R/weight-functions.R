@@ -100,10 +100,10 @@ make_weights_normal_mixture <- function(
 #' taus <- seq(0.1, 0.9, by = 0.2)
 #' y <- rnorm(2000, mean = 2, sd = 1.5)
 #' q_tau <- as.numeric(quantile(y, taus, type = 8))
-#' W <- make_weight_vqtl(taus, q_tau, mu = mean(y), sd = sd(y))
+#' W <- make_weights_vqtl(taus, q_tau, mu = mean(y), sd = sd(y))
 #' W
 #' @export
-make_weight_vqtl <- function(
+make_weights_vqtl <- function(
   taus,
   q_tau,
   mu,

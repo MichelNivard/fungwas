@@ -49,7 +49,7 @@ stage1 <- quantile_gwas(
 # -------------------------
 # 5. Stage 2: map to mean/variance parameters
 # -------------------------
-W_var <- make_weight_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
+W_var <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(Y), sd = sd(Y))
 
 stage2 <- param_gwas(
   stage1,

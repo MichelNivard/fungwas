@@ -23,7 +23,7 @@ set.seed(123)
 In `fungwas`, a core idea is to map **quantile GWAS slopes** into **parameters of a parametric system** (means, variances, mixture components, etc).
 This mapping is accomplished by **weight matrices** `W`.
 
-While some specific constructors are built-in (e.g. `make_weights_normal_mixture`, `make_weight_vqtl`),
+While some specific constructors are built-in (e.g. `make_weights_normal_mixture`, `make_weights_vqtl`),
 the function `make_weights_generic()` allows you to define your own mapping for **any distribution**
 so long as you can supply:
 

@@ -16,7 +16,7 @@ Core features:
     Construct weights for a **two-component Normal mixture** with SNP effects on the two component means.  
     Optionally, include an effect on **class membership** (log-odds of being in component 1).  
 
-  - `make_weight_vqtl()` —  
+  - `make_weights_vqtl()` —  
     Construct weights for SNP effects on the **mean** and **variance** of a single Normal distribution (variance QTL analysis).  
 
   - `make_weights_normal_mixture_vqtl()` —  
@@ -95,7 +95,7 @@ These functions construct weight matrices (`W`) that map quantile‐level SNP ef
 * `make_weights_normal_mixture()` —
   Map tau‐slopes to SNP effects on the means of two Normal components, with optional effects on **class membership** (log‐odds of belonging to component 1).
 
-* `make_weight_vqtl()` —
+* `make_weights_vqtl()` —
   Map tau‐slopes to SNP effects on the **mean** and **variance** of a single Normal distribution (variance QTL analysis).
 
 * `make_weights_normal_mixture_vqtl()` —
