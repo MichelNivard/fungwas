@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>tips &amp; ideas for GWAS in R • fungwas</title>
+<title>GWAS file handling in R • fungwas</title>
 <!-- favicons --><link rel="icon" type="image/png" sizes="96x96" href="../favicon-96x96.png">
 <link rel="icon" type="”image/svg+xml”" href="../favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="../apple-touch-icon.png">
@@ -15,7 +15,7 @@
 <link href="../deps/bootstrap-5.3.1/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.1/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
-<script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="tips &amp; ideas for GWAS in R">
+<script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="GWAS file handling in R">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -39,7 +39,7 @@
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
 <li><a class="dropdown-item" href="../articles/fungwas-overview.html">Functional GWAS via Quantile Regression and RIF</a></li>
-    <li><a class="dropdown-item" href="../articles/GWAS-in-R.html">tips &amp; ideas for GWAS in R</a></li>
+    <li><a class="dropdown-item" href="../articles/GWAS-in-R.html">GWAS file handling in R</a></li>
     <li><a class="dropdown-item" href="../articles/Q-stat.html">Model Fit Diagnostics with the Q Statistic</a></li>
     <li><a class="dropdown-item" href="../articles/weight-building.html">Your custom functional GWAS with `make_weights_generic`</a></li>
   </ul>
@@ -61,7 +61,7 @@
 
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
-      <img src="../logo.png" class="logo" alt=""><h1>tips &amp; ideas for GWAS in R</h1>
+      <img src="../logo.png" class="logo" alt=""><h1>GWAS file handling in R</h1>
             
       
 
@@ -71,371 +71,113 @@
     
     
 <div class="section level2">
-<h2 id="why-this-vignette">Why this vignette?<a class="anchor" aria-label="anchor" href="#why-this-vignette"></a>
+<h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
 </h2>
-<p>You’ve got genotypes (SNPs), covariates (age/sex/PCs), and a
-phenotype. You want to:</p>
-<ol style="list-style-type: decimal">
-<li>Load a chunk of variants into R without blowing up memory</li>
-<li>Keep the SNP metadata (ID, chr, bp, alleles) <strong>near the
-columns</strong>
-</li>
-<li>Run <code><a href="../reference/quantile_gwas.html">quantile_gwas()</a></code> once per chunk, then reuse it with
-different weight systems via <code><a href="../reference/param_gwas.html">param_gwas()</a></code>
-</li>
-<li>Optionally parallelize across chunks</li>
-</ol>
-<p>This vignette shows pragmatic routes from <strong>PLINK/VCF → R →
-fungwas</strong>, with minimal fuss.</p>
+<p>As R isnt very well know for GWAS (most GWAS tools are standalone
+commandline apps) we have prepared this vignette. In this vignette we go
+trough running a <strong>Quantile GWAS</strong> directly on genotypes
+from a PLINK <code>.fam/.bim/.bed</code> dataset, using
+<code>bigsnpr</code> to load the genotypes and <code>fungwas</code> for
+the quantile regression workflow.</p>
 </div>
 <div class="section level2">
-<h2 id="file-formats-and-quick-import-options">File formats and quick import options<a class="anchor" aria-label="anchor" href="#file-formats-and-quick-import-options"></a>
+<h2 id="example-2-gwas-from-plink-files">Example 2: GWAS from PLINK files<a class="anchor" aria-label="anchor" href="#example-2-gwas-from-plink-files"></a>
 </h2>
-<ul>
-<li><p><strong>PLINK bed/bim/fam</strong>: classical; use PLINK2 to
-slice/export easily.</p></li>
-<li><p><strong>VCF/BCF</strong>: also fine; use
-<code>seqminer::tabix.read()</code> or convert to PLINK2 PGEN/RAW
-first.</p></li>
-<li>
-<p><strong>Direct R import</strong>:</p>
-<ul>
-<li>
-<code>genio</code> reads bed/bim/fam into R objects.</li>
-<li>
-<code>seqminer</code> reads bgzipped VCF by region (Tabix).</li>
-<li>
-<code>bigstatsr/bigsnpr</code> are excellent for very large data
-(memory-mapped); optional.</li>
-</ul>
-</li>
-</ul>
-<p>Pick one route and stay consistent.</p>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="minimal-plink2-route-recommended">Minimal PLINK2 route (recommended)<a class="anchor" aria-label="anchor" href="#minimal-plink2-route-recommended"></a>
-</h2>
-<p>Suppose you have chromosome 1 in PLINK binary:
-<code>genotype_chr1.fam</code>, <code>genotype_chr1.bim</code>,
-<code>genotype_chr1.bed</code>.</p>
-<p>To extract a <strong>3 Mb region</strong> (1–3,000,000 bp) as plain
-text dosages:</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="ex">plink2</span> <span class="dt">\</span></span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>  <span class="at">--bfile</span> genotype_chr1 <span class="dt">\</span></span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>  <span class="at">--chr</span> 1 <span class="dt">\</span></span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>  <span class="at">--from-bp</span> 1 <span class="dt">\</span></span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>  <span class="at">--to-bp</span> 3000000 <span class="dt">\</span></span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>  <span class="at">--export</span> A <span class="dt">\</span></span>
-<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>  <span class="at">--out</span> genotype_scatter_chr1_1_3000000</span></code></pre></div>
-<p>This creates <code>genotype_scatter_chr1_1_3000000.raw</code>
-containing additive dosages (REF-coded by default; change with
-<code>--export-allele</code> if needed). The <code>.raw</code> columns
-look like:</p>
-<ul>
-<li>First columns: <code>FID IID PAT MAT SEX PHENOTYPE</code>
-</li>
-<li>Then one column per SNP, typically named like <code>SNPID_A1</code>
-(PLINK appends the counted allele)</li>
-</ul>
-<p><strong>Load the <code>.raw</code> file in R</strong>:</p>
-<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://r-datatable.com" class="external-link">data.table</a></span><span class="op">)</span></span>
-<span><span class="va">raw</span> <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="st">"genotype_scatter_chr1_1_3000000.raw"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">raw</span><span class="op">[</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">8</span><span class="op">]</span><span class="op">)</span></span></code></pre></div>
-<p>You can peel off IDs and convert the genotype columns to a numeric
-matrix:</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">id_cols</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"FID"</span>,<span class="st">"IID"</span>,<span class="st">"PAT"</span>,<span class="st">"MAT"</span>,<span class="st">"SEX"</span>,<span class="st">"PHENOTYPE"</span><span class="op">)</span></span>
-<span><span class="va">geno_dt</span> <span class="op">&lt;-</span> <span class="va">raw</span><span class="op">[</span>, <span class="op">!</span><span class="va">..id_cols</span><span class="op">]</span></span>
-<span><span class="va">G</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">as.matrix</a></span><span class="op">(</span><span class="va">geno_dt</span><span class="op">)</span>               <span class="co"># N x P</span></span>
+<p>The handling of <strong>PLINK genotype files</strong> in R is done
+with the highly optimized tool <code>bigsnpr</code>. For expedience, we
+only analyze the first 1000 SNPs. In practice you can chunk the genome
+into manageable subsets and itterte over them.</p>
+<p>To try this tutorial yourselve you can download plinkfiles to testun
+<a href="https://www.dropbox.com/scl/fi/41ep8xbdccp9xw5epim19/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing.zip?rlkey=tklapxwypeg79b1sx03o6ycs7&amp;dl=1" class="external-link">here</a>
+its about 200 Mb of files.</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># ============================================================</span></span>
+<span><span class="co"># Load PLINK bed/bim/fam with bigsnpr</span></span>
+<span><span class="co"># Simulate phenotype</span></span>
+<span><span class="co"># Run Quantile GWAS with fungwas</span></span>
+<span><span class="co"># ============================================================</span></span>
 <span></span>
-<span><span class="co"># keep SNP column names (often "rsid_A1")</span></span>
-<span><span class="va">snp_cols</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">geno_dt</span><span class="op">)</span></span></code></pre></div>
-<blockquote>
-<p><strong>Tip</strong>: Keep a <strong>SNP metadata table</strong>
-alongside columns (from <code>.bim</code> or your own index):</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">bim</span> <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="st">"genotype_chr1.bim"</span>, col.names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"chr"</span>,<span class="st">"snp"</span>,<span class="st">"cm"</span>,<span class="st">"bp"</span>,<span class="st">"a1"</span>,<span class="st">"a2"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="co"># Restrict to region and in the same order as 'snp_cols'</span></span>
-<span><span class="va">bim_sub</span> <span class="op">&lt;-</span> <span class="va">bim</span><span class="op">[</span><span class="va">bp</span> <span class="op">&gt;=</span> <span class="fl">1</span> <span class="op">&amp;</span> <span class="va">bp</span> <span class="op">&lt;=</span> <span class="fl">3e6</span><span class="op">]</span></span>
-<span><span class="co"># Match to snp_cols after PLINK’s allele suffixing</span></span>
-<span><span class="co"># e.g., map from 'snp' + '_A1' to column names</span></span>
-<span><span class="va">bim_sub</span><span class="op">[</span>, <span class="va">plink_col</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="va">snp</span>, <span class="st">"_"</span>, <span class="va">a1</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="va">bim_sub</span> <span class="op">&lt;-</span> <span class="va">bim_sub</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="va">snp_cols</span>, <span class="va">plink_col</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/stopifnot.html" class="external-link">stopifnot</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/all.html" class="external-link">all</a></span><span class="op">(</span><span class="va">bim_sub</span><span class="op">$</span><span class="va">plink_col</span> <span class="op">==</span> <span class="va">snp_cols</span><span class="op">)</span><span class="op">)</span>  <span class="co"># sanity</span></span></code></pre></div>
-</blockquote>
-<p>This ensures <strong>SNP info stays aligned</strong> with the
-genotype matrix columns.</p>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="covariates-and-pcs">Covariates and PCs<a class="anchor" aria-label="anchor" href="#covariates-and-pcs"></a>
-</h2>
-<ul>
-<li>
-<strong>From FAM</strong>: you get <code>IID</code>,
-<code>SEX</code>, and a placeholder phenotype.</li>
-<li>
-<strong>PCs</strong>: read from a separate file and <strong>merge by
-IID</strong>.</li>
-<li>Ensure the <strong>row order of <code>G</code>, covariates
-<code>C</code>, and phenotype <code>Y</code> is identical</strong>.</li>
-</ul>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">fam</span> <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="st">"genotype_chr1.fam"</span>, col.names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"FID"</span>,<span class="st">"IID"</span>,<span class="st">"PAT"</span>,<span class="st">"MAT"</span>,<span class="st">"SEX"</span>,<span class="st">"PHENO"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">pcs</span> <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="st">"pcs.tsv"</span><span class="op">)</span>   <span class="co"># columns: IID, PC1..PC20</span></span>
-<span><span class="va">covs</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/merge.html" class="external-link">merge</a></span><span class="op">(</span><span class="va">fam</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">IID</span>, <span class="va">SEX</span><span class="op">)</span><span class="op">]</span>, <span class="va">pcs</span>, by <span class="op">=</span> <span class="st">"IID"</span>, all.x <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span><span class="va">plink_prefix</span> <span class="op">&lt;-</span> <span class="st">"/path/to/your-plink/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing"</span>   <span class="co"># without extension</span></span>
 <span></span>
-<span><span class="co"># Reorder covs to match the .raw row order (IID in 'raw')</span></span>
-<span><span class="va">covs</span> <span class="op">&lt;-</span> <span class="va">covs</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="va">raw</span><span class="op">$</span><span class="va">IID</span>, <span class="va">covs</span><span class="op">$</span><span class="va">IID</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/stopifnot.html" class="external-link">stopifnot</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/all.html" class="external-link">all</a></span><span class="op">(</span><span class="va">covs</span><span class="op">$</span><span class="va">IID</span> <span class="op">==</span> <span class="va">raw</span><span class="op">$</span><span class="va">IID</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co"># Convert to .rds format, runonly  once</span></span>
+<span><span class="fu">snp_readBed</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="va">plink_prefix</span>, <span class="st">".bed"</span><span class="op">)</span><span class="op">)</span>   </span>
+<span><span class="va">obj.bigSNP</span> <span class="op">&lt;-</span> <span class="fu">snp_attach</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="va">plink_prefix</span>, <span class="st">".rds"</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Build C matrix: intercept is handled internally, so do not include it here</span></span>
-<span><span class="va">C</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">as.matrix</a></span><span class="op">(</span><span class="va">covs</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">SEX</span>, <span class="va">PC1</span>, <span class="va">PC2</span>, <span class="va">PC3</span>, <span class="va">PC4</span>, <span class="va">PC5</span><span class="op">)</span><span class="op">]</span><span class="op">)</span></span></code></pre></div>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="chunking-strategy">Chunking strategy<a class="anchor" aria-label="anchor" href="#chunking-strategy"></a>
-</h2>
-<p>Don’t try to load all SNPs across all chromosomes at once. Pick a
-<strong>chunking unit</strong>:</p>
-<ul>
-<li>
-<strong>By region</strong> (e.g. 3–10 Mb windows)</li>
-<li>
-<strong>By SNP count</strong> (e.g. 25k–100k SNPs per chunk)</li>
-</ul>
-<p><strong>Heuristics</strong>:</p>
-<ul>
-<li><p>Consider <strong>bigsnpr</strong> for memory-mapped matrices if
-extremely large.</p></li>
-<li><p>Time scales with <code>O(N × P × |taus|)</code> inside
-<code><a href="../reference/quantile_gwas.html">quantile_gwas()</a></code>.</p></li>
-<li><p>A practical starting point: <strong>N up to 200k, P ≈ 10k–50k per
-chunk, |taus| ≈ 15–25</strong>.</p></li>
-<li><p>Parallelize across chunks (not within) to keep code
-simple.</p></li>
-</ul>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="a-sketch-of-an-end-to-end-example-one-chunk">A sketch of an end-to-end example (one chunk)<a class="anchor" aria-label="anchor" href="#a-sketch-of-an-end-to-end-example-one-chunk"></a>
-</h2>
-<p>Assume you’ve loaded <strong>one region</strong> into <code>G</code>,
-plus <code>Y</code> and <code>C</code>.</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># 1) Choose quantiles and run Stage 1 once per chunk</span></span>
-<span><span class="va">taus</span>  <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0.10</span>, <span class="fl">0.90</span>, by <span class="op">=</span> <span class="fl">0.05</span><span class="op">)</span></span>
+<span><span class="va">G</span>   <span class="op">&lt;-</span> <span class="va">obj.bigSNP</span><span class="op">$</span><span class="va">genotypes</span>     <span class="co"># Filebacked Big Matrix</span></span>
+<span><span class="va">G</span>   <span class="op">&lt;-</span> <span class="fu">snp_fastImputeSimple</span><span class="op">(</span><span class="va">G</span><span class="op">)</span>  <span class="co"># quick mean imputation, for the benefit of simulation</span></span>
+<span><span class="va">CHR</span> <span class="op">&lt;-</span> <span class="va">obj.bigSNP</span><span class="op">$</span><span class="va">map</span><span class="op">$</span><span class="va">chromosome</span></span>
+<span><span class="va">POS</span> <span class="op">&lt;-</span> <span class="va">obj.bigSNP</span><span class="op">$</span><span class="va">map</span><span class="op">$</span><span class="va">physical.pos</span></span>
+<span><span class="va">SNP</span> <span class="op">&lt;-</span> <span class="va">obj.bigSNP</span><span class="op">$</span><span class="va">map</span><span class="op">$</span><span class="va">marker.ID</span></span>
+<span><span class="va">N</span>   <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">G</span><span class="op">)</span></span>
+<span><span class="va">P</span>   <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">ncol</a></span><span class="op">(</span><span class="va">G</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/cat.html" class="external-link">cat</a></span><span class="op">(</span><span class="st">"Loaded"</span>, <span class="va">N</span>, <span class="st">"individuals and"</span>, <span class="va">P</span>, <span class="st">"SNPs\\n"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Simulate phenotype</span></span>
+<span><span class="va">target_snps</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="va">P</span>, <span class="fl">5</span><span class="op">)</span></span>
+<span><span class="va">beta</span>        <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">5</span>, <span class="fl">0</span>, <span class="fl">0.25</span><span class="op">)</span></span>
+<span><span class="va">genetic</span>     <span class="op">&lt;-</span> <span class="fu">big_prodVec</span><span class="op">(</span><span class="va">G</span>, <span class="va">beta</span>, ind.col <span class="op">=</span> <span class="va">target_snps</span><span class="op">)</span></span>
+<span><span class="va">y</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/scale.html" class="external-link">scale</a></span><span class="op">(</span><span class="va">genetic</span> <span class="op">+</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">N</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Stage 1: Quantile GWAS</span></span>
+<span><span class="va">taus</span>   <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">0.9</span>, <span class="fl">0.1</span><span class="op">)</span></span>
 <span><span class="va">stage1</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/quantile_gwas.html">quantile_gwas</a></span><span class="op">(</span></span>
-<span>  <span class="va">Y</span>, <span class="va">G</span>,</span>
+<span>  Y <span class="op">=</span> <span class="va">y</span>,</span>
+<span>  G <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">as.matrix</a></span><span class="op">(</span><span class="va">G</span><span class="op">[</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">1000</span><span class="op">]</span><span class="op">)</span>,   <span class="co"># only first 1000 SNPs here</span></span>
 <span>  taus <span class="op">=</span> <span class="va">taus</span>,</span>
-<span>  C <span class="op">=</span> <span class="va">C</span>,</span>
-<span>  residualize_Y <span class="op">=</span> <span class="cn">FALSE</span>,   <span class="co"># default: only SNPs are residualized on C</span></span>
-<span>  benchmark <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>  benchmark <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  verbose <span class="op">=</span> <span class="cn">TRUE</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># 2a) Map to mean/variance (vQTL)</span></span>
-<span><span class="va">W_var</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/make_weights_vqtl.html">make_weights_vqtl</a></span><span class="op">(</span><span class="va">taus</span>, <span class="va">stage1</span><span class="op">$</span><span class="va">q_tau</span>, mu <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="va">Y</span><span class="op">)</span>, sd <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/sd.html" class="external-link">sd</a></span><span class="op">(</span><span class="va">Y</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">fit_var</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/param_gwas.html">param_gwas</a></span><span class="op">(</span><span class="va">stage1</span>, transform <span class="op">=</span> <span class="st">"custom_W"</span>, transform_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>W <span class="op">=</span> <span class="va">W_var</span><span class="op">)</span>,</span>
-<span>                      se_mode <span class="op">=</span> <span class="st">"plugin_cor"</span><span class="op">)</span></span>
+<span><span class="co"># Stage 2: Parametric mapping (vQTL)</span></span>
+<span><span class="va">W_vqtl</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/make_weights_vqtl.html">make_weights_vqtl</a></span><span class="op">(</span><span class="va">taus</span>, <span class="va">stage1</span><span class="op">$</span><span class="va">q_tau</span>, mu <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="va">y</span><span class="op">)</span>, sd <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/sd.html" class="external-link">sd</a></span><span class="op">(</span><span class="va">y</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># 2b) Map to two-component mixture (means + membership)</span></span>
-<span><span class="va">fit_mix</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/param_gwas.html">param_gwas</a></span><span class="op">(</span></span>
+<span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/param_gwas.html">param_gwas</a></span><span class="op">(</span></span>
 <span>  <span class="va">stage1</span>,</span>
-<span>  transform <span class="op">=</span> <span class="st">"two_normal"</span>,</span>
-<span>  transform_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>    p1 <span class="op">=</span> <span class="fl">0.5</span>, mu1 <span class="op">=</span> <span class="fl">1.2</span>, sd1 <span class="op">=</span> <span class="fl">0.45</span>,</span>
-<span>    mu2 <span class="op">=</span> <span class="fl">3.0</span>, sd2 <span class="op">=</span> <span class="fl">0.7</span>,</span>
-<span>    include_membership <span class="op">=</span> <span class="cn">TRUE</span></span>
-<span>  <span class="op">)</span>,</span>
-<span>  se_mode <span class="op">=</span> <span class="st">"diagonal"</span></span>
+<span>  transform <span class="op">=</span> <span class="st">"custom_W"</span>,</span>
+<span>  transform_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>W <span class="op">=</span> <span class="va">W_vqtl</span><span class="op">)</span>,</span>
+<span>  se_mode <span class="op">=</span> <span class="st">"dwls"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># 3) Keep SNP info alongside results</span></span>
-<span><span class="va">est_var</span> <span class="op">&lt;-</span> <span class="fu">data.table</span><span class="op">(</span><span class="va">bim_sub</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">chr</span>, <span class="va">snp</span>, <span class="va">bp</span>, <span class="va">a1</span>, <span class="va">a2</span><span class="op">)</span><span class="op">]</span>, <span class="fu"><a href="https://rdrr.io/r/base/t.html" class="external-link">t</a></span><span class="op">(</span><span class="va">fit_var</span><span class="op">$</span><span class="va">params</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">est_mix</span> <span class="op">&lt;-</span> <span class="fu">data.table</span><span class="op">(</span><span class="va">bim_sub</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">chr</span>, <span class="va">snp</span>, <span class="va">bp</span>, <span class="va">a1</span>, <span class="va">a2</span><span class="op">)</span><span class="op">]</span>, <span class="fu"><a href="https://rdrr.io/r/base/t.html" class="external-link">t</a></span><span class="op">(</span><span class="va">fit_mix</span><span class="op">$</span><span class="va">params</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Example preview</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">est_var</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">est_mix</span><span class="op">)</span></span></code></pre></div>
-<p><strong>Why two stages?</strong> You can reuse <code>stage1</code> to
-test <em>multiple</em> parametric systems (e.g., vQTL, mixture,
-log-normal) <strong>without re-running</strong> the heavy SNP × τ
-loop.</p>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="parallelism-across-chunks">Parallelism across chunks<a class="anchor" aria-label="anchor" href="#parallelism-across-chunks"></a>
-</h2>
-<p>The simplest approach: <strong>split the genome</strong> into chunks
-(by region or by SNP count), and run each chunk in a separate process.
-Here are two lightweight options.</p>
-<div class="section level3">
-<h3 id="option-a-future-apply">Option A: <code>future.apply</code><a class="anchor" aria-label="anchor" href="#option-a-future-apply"></a>
-</h3>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://future.apply.futureverse.org" class="external-link">future.apply</a></span><span class="op">)</span></span>
-<span><span class="fu">plan</span><span class="op">(</span><span class="va">multisession</span>, workers <span class="op">=</span> <span class="fl">4</span><span class="op">)</span>  <span class="co"># or multicore on Linux</span></span>
-<span></span>
-<span><span class="va">chunk_specs</span> <span class="op">&lt;-</span> <span class="fu">data.table</span><span class="op">(</span></span>
-<span>  chr <span class="op">=</span> <span class="fl">1</span>,</span>
-<span>  from_bp <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">2.5e8</span>, by <span class="op">=</span> <span class="fl">5e6</span><span class="op">)</span>,</span>
-<span>  to_bp   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Extremes.html" class="external-link">pmin</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">5e6</span>, <span class="fl">2.5e8</span> <span class="op">+</span> <span class="fl">5e6</span>, by <span class="op">=</span> <span class="fl">5e6</span><span class="op">)</span>, <span class="fl">2.5e8</span><span class="op">)</span></span>
+<span><span class="co"># Collect results</span></span>
+<span><span class="va">res</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  SNP <span class="op">=</span> <span class="va">SNP</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">1000</span><span class="op">]</span>,</span>
+<span>  CHR <span class="op">=</span> <span class="va">CHR</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">1000</span><span class="op">]</span>,</span>
+<span>  POS <span class="op">=</span> <span class="va">POS</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">1000</span><span class="op">]</span>,</span>
+<span>  beta_mu <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">params</span><span class="op">[</span><span class="st">"beta_mu"</span>, <span class="op">]</span>,</span>
+<span>  beta_sd <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">params</span><span class="op">[</span><span class="st">"beta_sigma2"</span>, <span class="op">]</span>,</span>
+<span>  se_mu   <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">SE_params</span><span class="op">[</span><span class="st">"beta_mu"</span>, <span class="op">]</span>,</span>
+<span>  se_sd   <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">SE_params</span><span class="op">[</span><span class="st">"beta_sigma2"</span>, <span class="op">]</span>,</span>
+<span>  Q       <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">Q</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">run_chunk</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">chr</span>, <span class="va">from_bp</span>, <span class="va">to_bp</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="co"># 1) Use plink2 to export .raw for the region (system call)</span></span>
-<span>  <span class="va">outpref</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"chr%s_%d_%d"</span>, <span class="va">chr</span>, <span class="va">from_bp</span>, <span class="va">to_bp</span><span class="op">)</span></span>
-<span>  <span class="va">cmd</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"plink2 --bfile genotype_chr%s --chr %s --from-bp %d --to-bp %d --export A --out %s"</span>,</span>
-<span>                 <span class="va">chr</span>, <span class="va">chr</span>, <span class="va">from_bp</span>, <span class="va">to_bp</span>, <span class="va">outpref</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/system.html" class="external-link">system</a></span><span class="op">(</span><span class="va">cmd</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res</span><span class="op">)</span></span>
 <span></span>
-<span>  <span class="co"># 2) Read .raw, .bim subset; build G and SNP meta</span></span>
-<span>  <span class="va">raw</span>  <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="va">outpref</span>, <span class="st">".raw"</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="va">fam</span>  <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"genotype_chr"</span>, <span class="va">chr</span>, <span class="st">".fam"</span><span class="op">)</span>,</span>
-<span>                col.names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"FID"</span>,<span class="st">"IID"</span>,<span class="st">"PAT"</span>,<span class="st">"MAT"</span>,<span class="st">"SEX"</span>,<span class="st">"PHENO"</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="va">bim</span>  <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"genotype_chr"</span>, <span class="va">chr</span>, <span class="st">".bim"</span><span class="op">)</span>,</span>
-<span>                col.names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"chr"</span>,<span class="st">"snp"</span>,<span class="st">"cm"</span>,<span class="st">"bp"</span>,<span class="st">"a1"</span>,<span class="st">"a2"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="co"># region meta</span></span>
-<span>  <span class="va">meta</span> <span class="op">&lt;-</span> <span class="va">bim</span><span class="op">[</span><span class="va">bp</span> <span class="op">&gt;=</span> <span class="va">from_bp</span> <span class="op">&amp;</span> <span class="va">bp</span> <span class="op">&lt;=</span> <span class="va">to_bp</span><span class="op">]</span></span>
-<span></span>
-<span>  <span class="co"># genotype matrix</span></span>
-<span>  <span class="va">id_cols</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"FID"</span>,<span class="st">"IID"</span>,<span class="st">"PAT"</span>,<span class="st">"MAT"</span>,<span class="st">"SEX"</span>,<span class="st">"PHENOTYPE"</span><span class="op">)</span></span>
-<span>  <span class="va">geno_dt</span> <span class="op">&lt;-</span> <span class="va">raw</span><span class="op">[</span>, <span class="op">!</span><span class="va">..id_cols</span><span class="op">]</span></span>
-<span>  <span class="va">G</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">as.matrix</a></span><span class="op">(</span><span class="va">geno_dt</span><span class="op">)</span></span>
-<span>  <span class="va">snp_cols</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">geno_dt</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="co"># align meta to columns (assuming PLINK col names as snp_a1)</span></span>
-<span>  <span class="va">meta</span><span class="op">[</span>, <span class="va">plink_col</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="va">snp</span>, <span class="st">"_"</span>, <span class="va">a1</span><span class="op">)</span><span class="op">]</span></span>
-<span>  <span class="va">meta</span> <span class="op">&lt;-</span> <span class="va">meta</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="va">snp_cols</span>, <span class="va">plink_col</span><span class="op">)</span><span class="op">]</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/stopifnot.html" class="external-link">stopifnot</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/all.html" class="external-link">all</a></span><span class="op">(</span><span class="va">meta</span><span class="op">$</span><span class="va">plink_col</span> <span class="op">==</span> <span class="va">snp_cols</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="co"># 3) Merge PCs/covariates and phenotype in the same row order as 'raw'</span></span>
-<span>  <span class="va">pcs</span>  <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="st">"pcs.tsv"</span><span class="op">)</span>    <span class="co"># has IID, PC1..PC20</span></span>
-<span>  <span class="va">covs</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/merge.html" class="external-link">merge</a></span><span class="op">(</span><span class="va">fam</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">IID</span>, <span class="va">SEX</span><span class="op">)</span><span class="op">]</span>, <span class="va">pcs</span>, by <span class="op">=</span> <span class="st">"IID"</span>, all.x <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
-<span>  <span class="va">covs</span> <span class="op">&lt;-</span> <span class="va">covs</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="va">raw</span><span class="op">$</span><span class="va">IID</span>, <span class="va">covs</span><span class="op">$</span><span class="va">IID</span><span class="op">)</span><span class="op">]</span></span>
-<span>  <span class="va">C</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">as.matrix</a></span><span class="op">(</span><span class="va">covs</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">SEX</span>, <span class="va">PC1</span>, <span class="va">PC2</span>, <span class="va">PC3</span>, <span class="va">PC4</span>, <span class="va">PC5</span><span class="op">)</span><span class="op">]</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="co"># 4) Pull phenotype Y in the same order; replace with your source</span></span>
-<span>  <span class="va">pheno</span> <span class="op">&lt;-</span> <span class="fu">fread</span><span class="op">(</span><span class="st">"pheno.tsv"</span><span class="op">)</span> <span class="co"># IID, Y</span></span>
-<span>  <span class="va">pheno</span> <span class="op">&lt;-</span> <span class="va">pheno</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/match.html" class="external-link">match</a></span><span class="op">(</span><span class="va">raw</span><span class="op">$</span><span class="va">IID</span>, <span class="va">pheno</span><span class="op">$</span><span class="va">IID</span><span class="op">)</span><span class="op">]</span></span>
-<span>  <span class="va">Y</span> <span class="op">&lt;-</span> <span class="va">pheno</span><span class="op">$</span><span class="va">Y</span></span>
-<span></span>
-<span>  <span class="co"># 5) Quantile GWAS and one mapping (you can add more)</span></span>
-<span>  <span class="va">taus</span>   <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0.10</span>, <span class="fl">0.90</span>, <span class="fl">0.05</span><span class="op">)</span></span>
-<span>  <span class="va">stage1</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/quantile_gwas.html">quantile_gwas</a></span><span class="op">(</span><span class="va">Y</span>, <span class="va">G</span>, taus <span class="op">=</span> <span class="va">taus</span>, C <span class="op">=</span> <span class="va">C</span>, benchmark <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="va">W_var</span>  <span class="op">&lt;-</span> <span class="fu"><a href="../reference/make_weights_vqtl.html">make_weights_vqtl</a></span><span class="op">(</span><span class="va">taus</span>, <span class="va">stage1</span><span class="op">$</span><span class="va">q_tau</span>, mu <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="va">Y</span><span class="op">)</span>, sd <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/sd.html" class="external-link">sd</a></span><span class="op">(</span><span class="va">Y</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="va">fit</span>    <span class="op">&lt;-</span> <span class="fu"><a href="../reference/param_gwas.html">param_gwas</a></span><span class="op">(</span><span class="va">stage1</span>, transform <span class="op">=</span> <span class="st">"custom_W"</span>, transform_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>W <span class="op">=</span> <span class="va">W_var</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="co"># 6) Return a data.table with meta + estimates</span></span>
-<span>  <span class="va">out</span> <span class="op">&lt;-</span> <span class="fu">data.table</span><span class="op">(</span><span class="va">meta</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">chr</span>, <span class="va">snp</span>, <span class="va">bp</span>, <span class="va">a1</span>, <span class="va">a2</span><span class="op">)</span><span class="op">]</span>, <span class="fu"><a href="https://rdrr.io/r/base/t.html" class="external-link">t</a></span><span class="op">(</span><span class="va">fit</span><span class="op">$</span><span class="va">params</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="va">out</span><span class="op">[</span><span class="op">]</span></span>
-<span><span class="op">}</span></span>
-<span></span>
-<span><span class="va">results_list</span> <span class="op">&lt;-</span> <span class="fu">future_mapply</span><span class="op">(</span></span>
-<span>  <span class="va">run_chunk</span>,</span>
-<span>  chr <span class="op">=</span> <span class="va">chunk_specs</span><span class="op">$</span><span class="va">chr</span>,</span>
-<span>  from_bp <span class="op">=</span> <span class="va">chunk_specs</span><span class="op">$</span><span class="va">from_bp</span>,</span>
-<span>  to_bp <span class="op">=</span> <span class="va">chunk_specs</span><span class="op">$</span><span class="va">to_bp</span>,</span>
-<span>  SIMPLIFY <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">results</span> <span class="op">&lt;-</span> <span class="fu">rbindlist</span><span class="op">(</span><span class="va">results_list</span>, use.names <span class="op">=</span> <span class="cn">TRUE</span>, fill <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
-<span><span class="fu">fwrite</span><span class="op">(</span><span class="va">results</span>, <span class="st">"fungwas_vqtl_results.tsv"</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="option-b-foreach-doparallel">Option B: <code>foreach</code> + <code>doParallel</code><a class="anchor" aria-label="anchor" href="#option-b-foreach-doparallel"></a>
-</h3>
-<p>Works similarly; pick whichever your cluster policy prefers.</p>
-<hr>
-</div>
+<span><span class="co"># Simple Manhattan-style plot for mean effect</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/par.html" class="external-link">par</a></span><span class="op">(</span>mar <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">2</span>,<span class="fl">1</span><span class="op">)</span>, bg <span class="op">=</span> <span class="st">"white"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span></span>
+<span>  <span class="va">res</span><span class="op">$</span><span class="va">POS</span>,</span>
+<span>  <span class="op">-</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log10</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Chisquare.html" class="external-link">pchisq</a></span><span class="op">(</span><span class="op">(</span><span class="va">res</span><span class="op">$</span><span class="va">beta_mu</span><span class="op">/</span><span class="va">res</span><span class="op">$</span><span class="va">se_mu</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span>, df<span class="op">=</span><span class="fl">1</span>, lower.tail <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  col <span class="op">=</span> <span class="va">res</span><span class="op">$</span><span class="va">CHR</span>, pch <span class="op">=</span> <span class="fl">20</span>, cex <span class="op">=</span> <span class="fl">0.6</span>,</span>
+<span>  xlab <span class="op">=</span> <span class="st">"Genomic position"</span>, ylab <span class="op">=</span> <span class="st">"-log10(p)"</span>,</span>
+<span>  main <span class="op">=</span> <span class="st">"Quantile GWAS (mu effect)"</span></span>
+<span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="vcf-input-alternative-no-plink2">VCF input alternative (no PLINK2)<a class="anchor" aria-label="anchor" href="#vcf-input-alternative-no-plink2"></a>
+<h2 id="chunking-the-gwas">Chunking the GWAS<a class="anchor" aria-label="anchor" href="#chunking-the-gwas"></a>
 </h2>
-<p>If you have bgzipped VCF/BCF with Tabix index, you can slice regions
-directly:</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="http://zhanxw.github.io/seqminer/" class="external-link">seqminer</a></span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">region</span> <span class="op">&lt;-</span> <span class="st">"1:1-3000000"</span></span>
-<span><span class="va">vcf_file</span> <span class="op">&lt;-</span> <span class="st">"chr1.vcf.bgz"</span></span>
-<span></span>
-<span><span class="co"># dosage extraction (depends on FORMAT fields and your VCF)</span></span>
-<span><span class="va">geno</span> <span class="op">&lt;-</span> <span class="fu">seqminer</span><span class="fu">::</span><span class="fu">tabix.read</span><span class="op">(</span><span class="va">vcf_file</span>, <span class="va">region</span><span class="op">)</span></span>
-<span><span class="co"># Convert to an N x P dosage matrix 'G' for your samples</span></span>
-<span><span class="co"># Build SNP meta from INFO/ID/POS/REF/ALT in 'geno'</span></span></code></pre></div>
-<p>This route is great if you already distribute data as indexed VCF per
-chromosome.</p>
-</div>
-<div class="section level2">
-<h2 id="practical-notes">Practical notes<a class="anchor" aria-label="anchor" href="#practical-notes"></a>
-</h2>
-<ul>
-<li>
-<strong>Allele coding</strong>: PLINK2 <code>--export A</code>
-counts the <strong>REF</strong> allele by default. If you prefer effect
-allele to be ALT, set <code>--export-allele</code> accordingly, and keep
-that consistent when interpreting signs.</li>
-<li>
-<strong>Sample order</strong>: Always reorder covariates and
-phenotype to match the genotype rows.</li>
-<li>
-<strong>QC</strong>: This vignette assumes you’ve already done
-SNP/sample QC (missingness, MAF, HWE, ancestry, duplicates).</li>
-<li>
-<strong>Chunk size</strong>: Aim for total memory ( ) 2–8 GB per
-worker to be safe; test on one chunk and scale.</li>
-<li>
-<strong>Stage reuse</strong>: Save <code>stage1</code> objects per
-chunk (e.g. <code>saveRDS(stage1, "chunkX_stage1.rds")</code>) so you
-can rerun different <code><a href="../reference/param_gwas.html">param_gwas()</a></code> analyses later without
-repeating Stage 1.</li>
-</ul>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="interpreting-results">Interpreting results<a class="anchor" aria-label="anchor" href="#interpreting-results"></a>
-</h2>
-<ul>
-<li><p><code><a href="../reference/quantile_gwas.html">quantile_gwas()</a></code> returns <strong>τ-slope
-matrices</strong> (<code>Q_slope</code>, <code>SE_tau</code>) and
-baseline quantiles/densities.</p></li>
-<li>
-<p><code><a href="../reference/param_gwas.html">param_gwas()</a></code> returns per-SNP effects on your chosen
-parameters and delta-method SEs:</p>
-<ul>
-<li>vQTL: <code>beta_mu</code>, <code>beta_sigma2</code>
-</li>
-<li>Mixture: <code>gamma</code> (membership), <code>beta_1</code>,
-<code>beta_2</code> (component means)</li>
-<li>Mixture vQTL: add <code>beta_sigma1</code>,
-<code>beta_sigma2</code>
-</li>
-</ul>
-</li>
-<li><p>Keep a joined table <strong>[SNP meta | parameter estimates |
-SEs]</strong> for clean downstream work.</p></li>
-</ul>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="summary">Summary<a class="anchor" aria-label="anchor" href="#summary"></a>
-</h2>
-<ul>
-<li>Use PLINK2 (or Tabix/VCF) to export <strong>chunked</strong>
-genotype matrices.</li>
-<li>Keep SNP metadata aligned with columns.</li>
-<li>Run <strong>Stage 1 once per chunk</strong>; reuse for multiple
-parameter systems.</li>
-<li>Parallelize <strong>across chunks</strong>; keep each worker’s
-memory footprint modest.</li>
-<li>Store results with SNP meta for painless interpretation and
-plotting.</li>
-</ul>
+<p>In this example we only analyzed the first 1000 SNPs for speed. In
+practice, you can loop over chunks of SNPs and process them in parallel
+using <code>future.apply</code> or <code>big_apply</code> from
+<strong>bigsnpr</strong>. The workflow is the same:</p>
+<ol style="list-style-type: decimal">
+<li>Select a block of SNPs from the <code>G</code> matrix.</li>
+<li>Run <code><a href="../reference/quantile_gwas.html">quantile_gwas()</a></code> on that block.</li>
+<li>Map results with <code><a href="../reference/param_gwas.html">param_gwas()</a></code>.</li>
+<li>Save results per chunk, then combine.</li>
+</ol>
+<p>This strategy readily scales the quantile GWAS to genome-wide
+data.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
