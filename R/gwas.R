@@ -131,45 +131,24 @@ quantile_gwas <- function(
 #'     \item \code{"custom_W"} – supply a weight matrix \code{W} in \code{transform_args}.
 #'     \item \code{"two_normal"} – construct weights for a two-component normal mixture.
 #'   }
-#' @param transform_args List of arguments passed to the chosen transform:
-#'   \itemize{
-#'     \item If \code{"custom_W"}: provide \code{W} (T x K).
-#'     \item If \code{"two_normal"}: provide \code{p1, mu1, sd1, mu2, sd2, include_membership}.
-#'   }
+#' @param transform_args Arguments for the chosen transform.
 #' @param se_mode Standard error mode:
 #'   \itemize{
-#'     \item \code{"diagonal"} – assume independence across taus (fast, default).
-#'     \item \code{"plugin_cor"} – use plugin tau-correlation with near-PD repair.
+#'     \item \code{"diagonal"} – assume independence across taus (fast).
+#'     \item \code{"plugin_cor"} – plugin correlation with near-PD repair.
+#'     \item \code{"dwls"} – diagonal weighted least squares (Q test calibrated).
 #'   }
-#' @param plugin_R Optional T x T correlation matrix; if NULL and
-#'   \code{se_mode="plugin_cor"}, it is estimated from the tau-slopes.
+#' @param plugin_R Optional T x T correlation matrix for \code{"plugin_cor"}.
 #'
-#' @return A list containing:
-#' \itemize{
-#'   \item \code{W} – weight matrix
-#'   \item \code{A} – pseudoinverse mapping matrix
-#'   \item \code{params} – (K x P) estimated parameter effects
-#'   \item \code{SE_params} – (K x P) delta-method standard errors
-#'   \item \code{R_tau} – tau correlation matrix (if \code{plugin_cor})
-#' }
-#'
-#' @examples
-#' set.seed(1)
-#' N <- 2000; P <- 20
-#' taus <- seq(0.1, 0.9, 0.1)
-#' G <- matrix(rbinom(N * P, 2, 0.3), N, P)
-#' Y <- rnorm(N)
-#' s1 <- quantile_gwas(Y, G, taus = taus)
-#' W  <- make_weight_variance(taus, s1$q_tau, mu = mean(Y), sd = sd(Y))
-#' s2 <- param_gwas(s1, transform = "custom_W", transform_args = list(W = W))
-#' str(s2$params)
+#' @return A list with elements:
+#'   \item \code{W}, \code{A}, \code{params}, \code{SE_params}, \code{Q}, \code{df}.
 #'
 #' @export
 param_gwas <- function(
   stage1,
   transform = c("custom_W", "two_normal"),
   transform_args = list(),
-  se_mode = c("diagonal", "plugin_cor"),
+  se_mode = c("diagonal", "plugin_cor", "dwls"),
   plugin_R = NULL
 ) {
   transform <- match.arg(transform)
@@ -208,39 +187,72 @@ param_gwas <- function(
   rownames(params) <- colnames(W)
   colnames(params) <- colnames(Q_slope)
 
-  # (3) Delta-method SEs
-  if (se_mode == "diagonal") {
-    A2 <- A * A
-    Vb <- SE_tau * SE_tau
-    SE_params <- sqrt(A2 %*% Vb)
-    R_used <- NULL
-  } else {
-    if (is.null(plugin_R)) {
-      R_tau <- stats::cor(t(Q_slope), use="pairwise.complete.obs")
-    } else {
-      R_tau <- as.matrix(plugin_R)
-    }
-    R_tau <- .nearPD_eig(R_tau, eps=1e-8)
+  # (3) SEs + Q statistics
+  SE_params <- matrix(NA_real_, nrow = K, ncol = P,
+                      dimnames = list(colnames(W), colnames(Q_slope)))
+  Q_stat <- rep(NA_real_, P)
 
-    SE_params <- matrix(NA_real_, nrow=K, ncol=P,
-                        dimnames=list(colnames(W), colnames(Q_slope)))
-    for (j in seq_len(P)) {
-      d <- SE_tau[, j]
-      Dj <- diag(d, nrow=Tt, ncol=Tt)
-      Sigma_j <- Dj %*% R_tau %*% Dj
-      Vtheta  <- A %*% Sigma_j %*% t(A)
-      Vtheta  <- .nearPD_eig(Vtheta, eps=1e-12)
-      SE_params[, j] <- sqrt(pmax(diag(Vtheta), 0))
-    }
-    R_used <- R_tau
+  Q_stat <- rep(NA_real_, P)
+
+if (se_mode == "diagonal") {
+  A2 <- A * A
+  Vb <- SE_tau * SE_tau
+  SE_params <- sqrt(A2 %*% Vb)
+  
+  # Q statistic (naive, assumes independence across taus)
+  for (j in seq_len(P)) {
+    resid_j <- Q_slope[, j] - W %*% params[, j]
+    var_j   <- SE_tau[, j]^2
+    Q_stat[j] <- sum((resid_j^2) / pmax(var_j, 1e-12))
   }
+
+} else if (se_mode == "plugin_cor") {
+  if (is.null(plugin_R)) {
+    R_tau <- stats::cor(t(Q_slope), use = "pairwise.complete.obs")
+  } else {
+    R_tau <- as.matrix(plugin_R)
+  }
+  R_tau <- .nearPD_eig(R_tau, eps = 1e-8)
+
+  for (j in seq_len(P)) {
+    d <- SE_tau[, j]
+    Dj <- diag(d, nrow = Tt, ncol = Tt)
+    Sigma_j <- Dj %*% R_tau %*% Dj
+    Vtheta  <- A %*% Sigma_j %*% t(A)
+    Vtheta  <- .nearPD_eig(Vtheta, eps = 1e-12)
+    SE_params[, j] <- sqrt(pmax(diag(Vtheta), 0))
+    
+    # Q statistic with full covariance
+    resid_j <- Q_slope[, j] - W %*% params[, j]
+    Q_stat[j] <- as.numeric(t(resid_j) %*% solve(Sigma_j, resid_j))
+  }
+
+} else if (se_mode == "dwls") {
+  for (j in seq_len(P)) {
+    var_j <- SE_tau[, j]^2
+    Wgt   <- diag(1 / pmax(var_j, 1e-12), Tt)
+    # GLS estimator (diagonal weight = DWLS)
+    A_dwls <- solve(t(W) %*% Wgt %*% W, t(W) %*% Wgt)
+    theta_j <- A_dwls %*% Q_slope[, j]
+    params[, j] <- theta_j
+    # SEs
+    cov_theta <- solve(t(W) %*% Wgt %*% W)
+    SE_params[, j] <- sqrt(diag(cov_theta))
+    # Q statistic (DWLS)
+    resid_j <- Q_slope[, j] - W %*% theta_j
+    Q_stat[j] <- sum((resid_j^2) / var_j)
+  }
+}
+
 
   out <- list(
     W         = W,
     A         = A,
     params    = params,
-    SE_params = SE_params
+    SE_params = SE_params,
+    Q         = Q_stat,
+    df        = Tt - K
   )
-  if (se_mode == "plugin_cor") out$R_tau <- R_used
+  if (se_mode == "plugin_cor") out$R_tau <- R_tau
   out
 }

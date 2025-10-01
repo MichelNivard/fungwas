@@ -8,7 +8,7 @@ param_gwas(
   stage1,
   transform = c("custom_W", "two_normal"),
   transform_args = list(),
-  se_mode = c("diagonal", "plugin_cor"),
+  se_mode = c("diagonal", "plugin_cor", "dwls"),
   plugin_R = NULL
 )
 }
@@ -21,44 +21,22 @@ param_gwas(
 \item \code{"two_normal"} – construct weights for a two-component normal mixture.
 }}
 
-\item{transform_args}{List of arguments passed to the chosen transform:
-\itemize{
-\item If \code{"custom_W"}: provide \code{W} (T x K).
-\item If \code{"two_normal"}: provide \code{p1, mu1, sd1, mu2, sd2, include_membership}.
-}}
+\item{transform_args}{Arguments for the chosen transform.}
 
 \item{se_mode}{Standard error mode:
 \itemize{
-\item \code{"diagonal"} – assume independence across taus (fast, default).
-\item \code{"plugin_cor"} – use plugin tau-correlation with near-PD repair.
+\item \code{"diagonal"} – assume independence across taus (fast).
+\item \code{"plugin_cor"} – plugin correlation with near-PD repair.
+\item \code{"dwls"} – diagonal weighted least squares (Q test calibrated).
 }}
 
-\item{plugin_R}{Optional T x T correlation matrix; if NULL and
-\code{se_mode="plugin_cor"}, it is estimated from the tau-slopes.}
+\item{plugin_R}{Optional T x T correlation matrix for \code{"plugin_cor"}.}
 }
 \value{
-A list containing:
-\itemize{
-\item \code{W} – weight matrix
-\item \code{A} – pseudoinverse mapping matrix
-\item \code{params} – (K x P) estimated parameter effects
-\item \code{SE_params} – (K x P) delta-method standard errors
-\item \code{R_tau} – tau correlation matrix (if \code{plugin_cor})
-}
+A list with elements:
+\item \code{W}, \code{A}, \code{params}, \code{SE_params}, \code{Q}, \code{df}.
 }
 \description{
 Maps quantile-level GWAS results into effects on user-specified
 parametric system parameters via a weight matrix \code{W}.
-}
-\examples{
-set.seed(1)
-N <- 2000; P <- 20
-taus <- seq(0.1, 0.9, 0.1)
-G <- matrix(rbinom(N * P, 2, 0.3), N, P)
-Y <- rnorm(N)
-s1 <- quantile_gwas(Y, G, taus = taus)
-W  <- make_weight_variance(taus, s1$q_tau, mu = mean(Y), sd = sd(Y))
-s2 <- param_gwas(s1, transform = "custom_W", transform_args = list(W = W))
-str(s2$params)
-
 }
