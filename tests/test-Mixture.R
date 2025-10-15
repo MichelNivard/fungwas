@@ -2,6 +2,7 @@
 # Test script for two-component Normal mixture GWAS
 # ============================================================
 
+devtools::document()
 library(fungwas)
 library(ggplot2)
 
@@ -26,9 +27,9 @@ beta_gamma_true <- rnorm(P) / 40
 # -------------------------
 # 3. Baseline mixture
 # -------------------------
-p1  <- 0.45
+p1  <- 0.7
 mu1 <- 1.2; sd1 <- 0.6
-mu2 <- 3.0; sd2 <- 0.9
+mu2 <- 2.5; sd2 <- 0.6
 
 # -------------------------
 # 4. Simulate phenotype
@@ -105,7 +106,9 @@ cat(sprintf("Correlation (true vs est) mean comp 2:      %.3f\n", cor_mu2))
 # -------------------------
 # 9. Plots
 # -------------------------
-p_gamma <- ggplot(results, aes(x = beta_gamma_true, y = beta_gamma_hat)) +
+
+# Scale to the logistic regression residual variance
+p_gamma <- ggplot(results, aes(x = beta_gamma_true, y = beta_gamma_hat/sqrt(pi^2/3))) +
   geom_point(color = "purple", size = 2) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
   labs(title = "Class membership effects", x = "True gamma", y = "Estimated gamma") +

@@ -7,9 +7,11 @@
 # Install if needed
 # install.packages("bigsnpr")
 # devtools::install_github("MichelNivard/fungwas")
-
+devtools::document()
 library(bigsnpr)
 library(fungwas)
+
+set.seed(123)
 
 # -------------------------
 # 1. Load PLINK genotype data

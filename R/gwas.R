@@ -1,52 +1,34 @@
-
-
 #' Quantile-level RIF GWAS
 #'
 #' Runs a genome-wide association scan at user-specified quantile levels (taus)
-#' using Recentered Influence Functions (RIF). This stage estimates per-tau
-#' SNP slopes and their naive standard errors, independent of any parametric
-#' system.
+#' using Recentered Influence Functions (RIF). Supports two covariate modes:
+#' - "residualize": partial out C from SNPs (but never from Y).
+#' - "include": include C directly in the regression alongside each SNP.
 #'
 #' @param Y Numeric vector (length N), phenotype.
 #' @param G Numeric matrix (N x P) of SNP dosages or genotypes.
-#' @param taus Numeric vector of quantile levels (default \code{seq(0.10,0.90,0.05)}).
+#' @param taus Numeric vector of quantile levels.
 #' @param C Optional N x K covariate matrix.
-#' @param residualize_Y Logical; if TRUE, regress \code{Y} on \code{C} before quantiles
-#'   (and SNPs on \code{C} too).
-#' @param density_floor Positive scalar; lower bound for estimated densities
-#'   \eqn{f_Y(q_tau)}.
-#' @param benchmark Logical; if TRUE, include timing information.
+#' @param covar_mode Either "residualize" (default) or "include".
+#'   - "residualize": partial out C from G before regression.
+#'   - "include": include C directly in regression.
+#' @param density_floor Positive scalar; lower bound for estimated densities.
+#' @param benchmark Logical; if TRUE, include timing info.
 #' @param verbose Logical; print progress messages.
 #'
-#' @return A list containing:
-#' \itemize{
-#'   \item \code{taus} – quantile levels
-#'   \item \code{q_tau} – estimated baseline quantiles of Y
-#'   \item \code{fhat_tau} – estimated densities at \code{q_tau}
-#'   \item \code{Q_slope} – (T x P) matrix of per-tau SNP slopes
-#'   \item \code{SE_tau} – (T x P) matrix of per-tau SEs
-#'   \item \code{timing} – (if \code{benchmark=TRUE}) timing breakdown
-#' }
-#'
-#' @examples
-#' set.seed(1)
-#' N <- 2000; P <- 20
-#' taus <- seq(0.1, 0.9, 0.1)
-#' G <- matrix(rbinom(N * P, 2, 0.3), N, P)
-#' Y <- rnorm(N)
-#' res <- quantile_gwas(Y, G, taus = taus)
-#' str(res)
-#'
+#' @return A list with taus, q_tau, fhat_tau, Q_slope, SE_tau, timing.
+#' 
 #' @export
 quantile_gwas <- function(
   Y, G,
   taus = seq(0.10, 0.90, 0.05),
   C = NULL,
-  residualize_Y = FALSE,
+  covar_mode = c("residualize", "include"),
   density_floor = 1e-8,
   benchmark = TRUE,
   verbose = TRUE
 ) {
+  covar_mode <- match.arg(covar_mode)
   Y <- as.numeric(Y)
   G <- as.matrix(G)
   N <- length(Y); P <- ncol(G); Tt <- length(taus)
@@ -54,17 +36,10 @@ quantile_gwas <- function(
 
   t_all0 <- proc.time()[["elapsed"]]
 
-  # (1) Residualize Y (optional) and build RIF
-  if (!is.null(C) && isTRUE(residualize_Y)) {
-    if (verbose) message("Residualizing Y on C...")
-    Y_star <- .residualize_on_C(Y, C)
-  } else {
-    Y_star <- Y
-  }
-
-  if (verbose) message("Building RIF matrix...")
+  # (1) Build RIF on raw Y
+  if (verbose) message("Building RIF matrix on raw Y...")
   t0 <- proc.time()[["elapsed"]]
-  rif <- .build_rif_matrix(Y_star, taus, density_floor = density_floor)
+  rif <- .build_rif_matrix(Y, taus, density_floor = density_floor)
   RIF     <- rif$R
   q_tau   <- rif$q_tau
   fhat    <- rif$fhat_tau
@@ -72,7 +47,7 @@ quantile_gwas <- function(
   t1 <- proc.time()[["elapsed"]]
   time_rif <- t1 - t0
 
-  # (2) Per-SNP tau-slopes and naive SEs
+  # (2) SNP regressions
   if (verbose) message("Computing per-SNP tau-slopes...")
   t2 <- proc.time()[["elapsed"]]
   Q_slope <- matrix(NA_real_, nrow = Tt, ncol = P,
@@ -80,26 +55,58 @@ quantile_gwas <- function(
   SE_tau  <- matrix(NA_real_, nrow = Tt, ncol = P,
                     dimnames = list(paste0("tau", taus), colnames(G)))
 
-  for (j in seq_len(P)) {
-    x <- G[, j]
-    if (!is.null(C)) x <- .residualize_on_C(x, C)
-    x_c <- x - mean(x)
-    Sxx <- sum(x_c * x_c)
-    if (!(is.finite(Sxx) && Sxx > 0)) next
+  if (covar_mode == "residualize") {
+    # Partial out C from G (never from Y)
+    if (!is.null(C)) {
+      if (verbose) message("Residualizing SNPs on covariates...")
+      for (j in seq_len(P)) {
+        G[, j] <- .residualize_on_C(G[, j], C)
+      }
+    }
+    # Univariate regression of RIF on each SNP
+    for (j in seq_len(P)) {
+      x <- G[, j]
+      x_c <- x - mean(x)
+      Sxx <- sum(x_c * x_c)
+      if (!(is.finite(Sxx) && Sxx > 0)) next
 
-    b <- as.numeric(crossprod(x_c, RIF) / Sxx)
-    a <- R_mean - b * mean(x)
-    term1 <- matrix(rep(a, each = N), nrow = N, ncol = Tt)
-    term2 <- outer(x, b)
-    E     <- RIF - term1 - term2
+      b <- as.numeric(crossprod(x_c, RIF) / Sxx)
+      a <- R_mean - b * mean(x)
+      term1 <- matrix(rep(a, each = N), nrow = N, ncol = Tt)
+      term2 <- outer(x, b)
+      E     <- RIF - term1 - term2
 
-    SSE    <- colSums(E * E)
-    sigma2 <- SSE / max(N - 2L, 1L)
-    se_b   <- sqrt(sigma2 / Sxx)
+      SSE    <- colSums(E * E)
+      sigma2 <- SSE / max(N - 2L, 1L)
+      se_b   <- sqrt(sigma2 / Sxx)
 
-    Q_slope[, j] <- b
-    SE_tau[, j]  <- se_b
+      Q_slope[, j] <- b
+      SE_tau[, j]  <- se_b
+    }
+
+  } else if (covar_mode == "include") {
+    print("Currently covar_mode = 'include' is still in development")
+    break
+
+    # Joint regression RIF ~ SNP + C
+    if (is.null(C)) stop("Must provide C if covar_mode = 'include'.")
+    C <- as.matrix(C)
+
+    for (j in seq_len(P)) {
+      X <- cbind(G[, j], C)  # SNP + covariates
+      fit <- lm.fit(X, RIF)  # multi-response regression (N x T outcome)
+      b <- fit$coefficients[1, ]      # SNP slope
+      Q_slope[, j] <- b
+
+      # compute SEs for SNP slope (per tau)
+      resid <- RIF - X %*% fit$coefficients
+      sigma2 <- colSums(resid^2) / (N - ncol(X))
+      XtXinv <- chol2inv(chol(crossprod(X)))
+      se_b <- sqrt(sigma2 * XtXinv[1, 1])
+      SE_tau[, j] <- se_b
+    }
   }
+
   t3 <- proc.time()[["elapsed"]]
   time_gwas <- t3 - t2
 

@@ -2,6 +2,7 @@
 # Test: Model comparison using Q statistic
 # ============================================================
 
+devtools::document()
 library(fungwas)
 
 set.seed(123)

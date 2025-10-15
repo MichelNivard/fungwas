@@ -9,7 +9,7 @@ quantile_gwas(
   G,
   taus = seq(0.1, 0.9, 0.05),
   C = NULL,
-  residualize_Y = FALSE,
+  covar_mode = c("residualize", "include"),
   density_floor = 1e-08,
   benchmark = TRUE,
   verbose = TRUE
@@ -20,44 +20,30 @@ quantile_gwas(
 
 \item{G}{Numeric matrix (N x P) of SNP dosages or genotypes.}
 
-\item{taus}{Numeric vector of quantile levels (default \code{seq(0.10,0.90,0.05)}).}
+\item{taus}{Numeric vector of quantile levels.}
 
 \item{C}{Optional N x K covariate matrix.}
 
-\item{residualize_Y}{Logical; if TRUE, regress \code{Y} on \code{C} before quantiles
-(and SNPs on \code{C} too).}
+\item{covar_mode}{Either "residualize" (default) or "include".
+\itemize{
+\item "residualize": partial out C from G before regression.
+\item "include": include C directly in regression.
+}}
 
-\item{density_floor}{Positive scalar; lower bound for estimated densities
-\eqn{f_Y(q_tau)}.}
+\item{density_floor}{Positive scalar; lower bound for estimated densities.}
 
-\item{benchmark}{Logical; if TRUE, include timing information.}
+\item{benchmark}{Logical; if TRUE, include timing info.}
 
 \item{verbose}{Logical; print progress messages.}
 }
 \value{
-A list containing:
-\itemize{
-\item \code{taus} – quantile levels
-\item \code{q_tau} – estimated baseline quantiles of Y
-\item \code{fhat_tau} – estimated densities at \code{q_tau}
-\item \code{Q_slope} – (T x P) matrix of per-tau SNP slopes
-\item \code{SE_tau} – (T x P) matrix of per-tau SEs
-\item \code{timing} – (if \code{benchmark=TRUE}) timing breakdown
-}
+A list with taus, q_tau, fhat_tau, Q_slope, SE_tau, timing.
 }
 \description{
 Runs a genome-wide association scan at user-specified quantile levels (taus)
-using Recentered Influence Functions (RIF). This stage estimates per-tau
-SNP slopes and their naive standard errors, independent of any parametric
-system.
+using Recentered Influence Functions (RIF). Supports two covariate modes:
+\itemize{
+\item "residualize": partial out C from SNPs (but never from Y).
+\item "include": include C directly in the regression alongside each SNP.
 }
-\examples{
-set.seed(1)
-N <- 2000; P <- 20
-taus <- seq(0.1, 0.9, 0.1)
-G <- matrix(rbinom(N * P, 2, 0.3), N, P)
-Y <- rnorm(N)
-res <- quantile_gwas(Y, G, taus = taus)
-str(res)
-
 }
