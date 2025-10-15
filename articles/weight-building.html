@@ -175,7 +175,7 @@ on each quantile (RIF slopes). Then, map these into parameter-space
 using <code><a href="../reference/param_gwas.html">param_gwas()</a></code> with our custom <code>W</code>.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">stage1</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/quantile_gwas.html">quantile_gwas</a></span><span class="op">(</span><span class="va">Y</span>, <span class="va">G</span>, taus <span class="op">=</span> <span class="va">taus</span>, benchmark <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span><span class="co">#&gt; Building RIF matrix...</span></span>
+<span><span class="co">#&gt; Building RIF matrix on raw Y...</span></span>
 <span><span class="co">#&gt; Computing per-SNP tau-slopes...</span></span>
 <span></span>
 <span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/param_gwas.html">param_gwas</a></span><span class="op">(</span></span>

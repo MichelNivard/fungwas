@@ -132,7 +132,7 @@ parameters.</p></li>
 <span></span>
 <span><span class="co"># Stage 1: quantile GWAS</span></span>
 <span><span class="va">stage1</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/quantile_gwas.html">quantile_gwas</a></span><span class="op">(</span><span class="va">Y</span>, <span class="va">G</span>, taus <span class="op">=</span> <span class="va">taus</span><span class="op">)</span></span>
-<span><span class="co">#&gt; Building RIF matrix...</span></span>
+<span><span class="co">#&gt; Building RIF matrix on raw Y...</span></span>
 <span><span class="co">#&gt; Computing per-SNP tau-slopes...</span></span>
 <span></span>
 <span><span class="co"># Stage 2: mean/variance mapping (vQTL weights)</span></span>
@@ -168,7 +168,7 @@ on the mean.</p>
 <span></span>
 <span><span class="va">taus</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0.05</span>, <span class="fl">0.95</span>, <span class="fl">0.05</span><span class="op">)</span></span>
 <span><span class="va">stage1</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/quantile_gwas.html">quantile_gwas</a></span><span class="op">(</span><span class="va">Y</span>, <span class="va">G</span>, taus <span class="op">=</span> <span class="va">taus</span><span class="op">)</span></span>
-<span><span class="co">#&gt; Building RIF matrix...</span></span>
+<span><span class="co">#&gt; Building RIF matrix on raw Y...</span></span>
 <span><span class="co">#&gt; Computing per-SNP tau-slopes...</span></span>
 <span></span>
 <span><span class="va">W_var</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/make_weights_vqtl.html">make_weights_vqtl</a></span><span class="op">(</span><span class="va">taus</span>, <span class="va">stage1</span><span class="op">$</span><span class="va">q_tau</span>, mu <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="va">Y</span><span class="op">)</span>, sd <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/sd.html" class="external-link">sd</a></span><span class="op">(</span><span class="va">Y</span><span class="op">)</span><span class="op">)</span></span>
@@ -205,7 +205,7 @@ distributions may show multimodality.</p>
 <span></span>
 <span><span class="va">taus</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">0.9</span>, <span class="fl">0.05</span><span class="op">)</span></span>
 <span><span class="va">stage1</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/quantile_gwas.html">quantile_gwas</a></span><span class="op">(</span><span class="va">Y</span>, <span class="va">G</span>, taus <span class="op">=</span> <span class="va">taus</span><span class="op">)</span></span>
-<span><span class="co">#&gt; Building RIF matrix...</span></span>
+<span><span class="co">#&gt; Building RIF matrix on raw Y...</span></span>
 <span><span class="co">#&gt; Computing per-SNP tau-slopes...</span></span>
 <span></span>
 <span><span class="va">fit_mix</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/param_gwas.html">param_gwas</a></span><span class="op">(</span></span>
