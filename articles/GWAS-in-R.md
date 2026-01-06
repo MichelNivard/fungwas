@@ -1,0 +1,111 @@
+# GWAS file handling in R
+
+## Overview
+
+As R isnt very well know for GWAS (most GWAS tools are standalone
+commandline apps) we have prepared this vignette. In this vignette we go
+trough running a **Quantile GWAS** directly on genotypes from a PLINK
+`.fam/.bim/.bed` dataset, using `bigsnpr` to load the genotypes and
+`fungwas` for the quantile regression workflow.
+
+## Example 2: GWAS from PLINK files
+
+The handling of **PLINK genotype files** in R is done with the highly
+optimized tool `bigsnpr`. For expedience, we only analyze the first 1000
+SNPs. In practice you can chunk the genome into manageable subsets and
+itterte over them.
+
+To try this tutorial yourselve you can download plinkfiles to testun
+[here](https://www.dropbox.com/scl/fi/41ep8xbdccp9xw5epim19/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing.zip?rlkey=tklapxwypeg79b1sx03o6ycs7&dl=1)
+its about 200 Mb of files.
+
+``` r
+# ============================================================
+# Load PLINK bed/bim/fam with bigsnpr
+# Simulate phenotype
+# Run Quantile GWAS with fungwas
+# ============================================================
+
+plink_prefix <- "/path/to/your-plink/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing/1KG.EAS.auto.snp.norm.nodup.split.rare002.common015.missing"   # without extension
+
+# Convert to .rds format, runonly  once
+snp_readBed(paste0(plink_prefix, ".bed"))   
+obj.bigSNP <- snp_attach(paste0(plink_prefix, ".rds"))
+
+G   <- obj.bigSNP$genotypes     # Filebacked Big Matrix
+G   <- snp_fastImputeSimple(G)  # quick mean imputation, for the benefit of simulation
+CHR <- obj.bigSNP$map$chromosome
+POS <- obj.bigSNP$map$physical.pos
+SNP <- obj.bigSNP$map$marker.ID
+N   <- nrow(G)
+P   <- ncol(G)
+
+cat("Loaded", N, "individuals and", P, "SNPs\\n")
+
+# Simulate phenotype
+target_snps <- sample(P, 5)
+beta        <- rnorm(5, 0, 0.25)
+genetic     <- big_prodVec(G, beta, ind.col = target_snps)
+y <- as.numeric(scale(genetic + rnorm(N)))
+
+# Stage 1: Quantile GWAS
+taus   <- seq(0.1, 0.9, 0.1)
+stage1 <- quantile_gwas(
+  Y = y,
+  G = as.matrix(G[, 1:1000]),   # only first 1000 SNPs here
+  taus = taus,
+  benchmark = FALSE,
+  verbose = TRUE
+)
+
+# Stage 2: Parametric mapping (vQTL)
+W_vqtl <- make_weights_vqtl(taus, stage1$q_tau, mu = mean(y), sd = sd(y))
+
+fit <- param_gwas(
+  stage1,
+  transform = "custom_W",
+  transform_args = list(W = W_vqtl),
+  se_mode = "dwls"
+)
+
+# Collect results
+res <- data.frame(
+  SNP = SNP[1:1000],
+  CHR = CHR[1:1000],
+  POS = POS[1:1000],
+  beta_mu = fit$params["beta_mu", ],
+  beta_sd = fit$params["beta_sigma2", ],
+  se_mu   = fit$SE_params["beta_mu", ],
+  se_sd   = fit$SE_params["beta_sigma2", ],
+  Q       = fit$Q
+)
+
+head(res)
+
+# Simple Manhattan-style plot for mean effect
+par(mar = c(4,4,2,1), bg = "white")
+plot(
+  res$POS,
+  -log10(pchisq((res$beta_mu/res$se_mu)^2, df=1, lower.tail = FALSE)),
+  col = res$CHR, pch = 20, cex = 0.6,
+  xlab = "Genomic position", ylab = "-log10(p)",
+  main = "Quantile GWAS (mu effect)"
+)
+```
+
+## Chunking the GWAS
+
+In this example we only analyzed the first 1000 SNPs for speed. In
+practice, you can loop over chunks of SNPs and process them in parallel
+using `future.apply` or `big_apply` from **bigsnpr**. The workflow is
+the same:
+
+1.  Select a block of SNPs from the `G` matrix.
+2.  Run
+    [`quantile_gwas()`](https://michelnivard.github.io/fungwas/reference/quantile_gwas.md)
+    on that block.
+3.  Map results with
+    [`param_gwas()`](https://michelnivard.github.io/fungwas/reference/param_gwas.md).
+4.  Save results per chunk, then combine.
+
+This strategy readily scales the quantile GWAS to genome-wide data.
