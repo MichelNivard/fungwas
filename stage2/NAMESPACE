@@ -10,5 +10,5 @@ export(param_gwas_from_file)
 export(quantile_gwas)
 
 # C++ exports
-useDynLib(fungwas, .registration = TRUE)
+useDynLib(fungwasStage2, .registration = TRUE)
 importFrom(Rcpp, sourceCpp)

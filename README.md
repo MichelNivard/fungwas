@@ -51,6 +51,43 @@ pip install .
 devtools::install("stage2")
 ```
 
+## Detailed Build Instructions
+
+### System Requirements
+- C/C++ compiler with OpenMP (e.g. GCC >= 9).
+- R >= 4.2 with `Rcpp` and `RcppArmadillo` available.
+- Python >= 3.10 with `pip` and `numpy`.
+
+### Build Stage 1 (Python/C++)
+
+```bash
+conda activate fungwas-stage1
+cd stage1
+pip install -e .
+python -c "from fungwas_stage1 import core; print(core.HAVE_CPP)"
+```
+
+If `core.HAVE_CPP` is `False`, ensure your compiler and OpenMP runtime are available,
+then reinstall with `pip install -e .`.
+
+### Build Stage 2 (R/C++)
+
+```bash
+R CMD INSTALL stage2
+```
+
+If you install into a user library, set:
+
+```bash
+export R_LIBS_USER=/path/to/your/R/library
+```
+
+### Example simulation helper
+
+The Stage 1 simulation helper used by the Stage 2 proof script lives in
+`docs/examples/generate_stage1_sim.py`. It writes `.stage1.tsv.gz` and `.cov.gz`
+files compatible with `param_gwas_from_file`.
+
 ## Workflow Guide
 
 ### Step 0: Data Preparation
@@ -83,7 +120,7 @@ See [Stage 1 Documentation](stage1/README.md) for full CLI options.
 In R, load the results and map them to your model of interest.
 
 ```r
-library(fungwas)
+library(fungwasStage2)
 
 # 1. Define your model (e.g., vQTL / Variance effects)
 #    We need the derivative of quantiles w.r.t mean and sd.

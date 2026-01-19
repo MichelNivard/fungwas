@@ -9,6 +9,5 @@
 #' @param K Dimension of the covariance matrix (e.g. 17).
 #' @return NumericMatrix of standard errors (n_snps x n_params).
 compute_calibrated_se <- function(cov_vec, offsets, A, K) {
-    .Call(`_fungwas_compute_calibrated_se`, cov_vec, offsets, A, K)
+    .Call(`_fungwasStage2_compute_calibrated_se`, cov_vec, offsets, A, K)
 }
-

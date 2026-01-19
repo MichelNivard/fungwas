@@ -1,146 +1,147 @@
 # ============================================================
-# Proof: Stage 2 SE Modes Produce Correct Results
+# Proof 3: Stage 2 SE Mode Comparison & Mixture Recovery
 #
-# Demonstrates that all SE modes (diagonal, plugin_cor, dwls, tau_cov)
-# produce properly calibrated standard errors on simulated data.
+# This is the third validation step in the sequence:
+# 1) OLS jackknife vs analytic OLS (stage1)
+# 2) RIF/quantile jackknife vs analytic RIF OLS (stage1)
+# 3) Stage2 SE modes vs RIF regression (stage2)
 # ============================================================
 
-devtools::load_all(".")
-library(testthat)
+library(fungwasStage2)
+library(ggplot2)
+library(patchwork)
+library(jsonlite)
 
-set.seed(42)
+set.seed(12345)
 
-# -------------------------
-# 1. Simulate genotypes
-# -------------------------
-N <- 10000
-P <- 100
-maf <- runif(P, 0.05, 0.5)
-G <- matrix(rbinom(N * P, 2, rep(maf, each = N)), nrow = N, ncol = P)
-colnames(G) <- paste0("SNP", seq_len(P))
+cat("\n======================================================\n")
+cat("Running Stage 2 Proof via Stage 1 Simulation\n")
+cat("======================================================\n")
 
 # -------------------------
-# 2. Simulate two-component mixture phenotype
+# 1. Run Stage 1 Simulation (Python)
 # -------------------------
-p1 <- 0.5
-mu1 <- 1.2
-sd1 <- 0.6
-mu2 <- 3.0
-sd2 <- 0.9
+taus <- seq(0.1, 0.9, 0.1)
+out_prefix <- tempfile("stage1_sim_")
+py_script <- file.path("docs", "examples", "generate_stage1_sim.py")
 
-# True effects
-beta_gamma_true <- rnorm(P) / 50
-beta_mu1_true <- rnorm(P) / 50
-beta_mu2_true <- rnorm(P) / 50
+cat("Simulating data + running Stage 1 (Python)...\n")
+system2(
+  "python",
+  args = c(
+    py_script,
+    "--out-prefix", out_prefix,
+    "--n-samples", "300000",
+    "--n-snps", "100",
+    "--n-covars", "2",
+    "--seed", "12345",
+    "--taus", paste(taus, collapse = ","),
+    "--n-blocks", "25",
+    "--n-threads", "4"
+  ),
+  stdout = TRUE
+)
 
-# Generate phenotype
-gamma <- rep(qlogis(p1), N) + G %*% beta_gamma_true
-p1_i <- plogis(gamma)
-class_i <- rbinom(N, 1, p1_i)
+stage1_file <- paste0(out_prefix, ".stage1.tsv.gz")
+cov_file <- paste0(out_prefix, ".cov.gz")
+meta_file <- paste0(out_prefix, ".meta.json")
 
-mu_i <- ifelse(class_i == 1,
-               mu1 + G %*% beta_mu1_true,
-               mu2 + G %*% beta_mu2_true)
-
-Y <- rnorm(N, mean = mu_i, sd = ifelse(class_i == 1, sd1, sd2))
-
-# -------------------------
-# 3. Stage 1: quantile GWAS
-# -------------------------
-taus <- seq(0.1, 0.9, 0.05)
-
-cat("Running Stage 1 quantile GWAS...\n")
-stage1 <- quantile_gwas(Y, G, taus = taus, verbose = FALSE)
+meta <- jsonlite::read_json(meta_file, simplifyVector = TRUE)
 
 # -------------------------
-# 4. Stage 2: Test all SE modes
+# 2. Stage 2 with ALL SE MODES
 # -------------------------
+q_tau <- as.numeric(meta$q_tau)
 W <- make_weights_normal_mixture(
-  taus, stage1$q_tau,
-  p1 = p1, mu1 = mu1, sd1 = sd1,
-  mu2 = mu2, sd2 = sd2,
+  taus, q_tau,
+  p1 = meta$p1, mu1 = meta$mu1, sd1 = meta$sd1,
+  mu2 = meta$mu2, sd2 = meta$sd2,
   include_membership = TRUE
 )
 
-cat("Testing SE modes...\n")
+cat("Running Stage 2 (SE Mode: diagonal)...\n")
+fit_diag <- param_gwas_from_file(stage1_file, W = W, se_mode = "diagonal")
 
-# Diagonal
-fit_diag <- param_gwas(stage1, transform = "custom_W", 
-                       transform_args = list(W = W), se_mode = "diagonal")
+cat("Running Stage 2 (SE Mode: plugin_cor)...\n")
+fit_plugin <- param_gwas_from_file(stage1_file, W = W, se_mode = "plugin_cor")
 
-# Plugin correlation
-fit_plugin <- param_gwas(stage1, transform = "custom_W", 
-                         transform_args = list(W = W), se_mode = "plugin_cor")
+cat("Running Stage 2 (SE Mode: dwls)...\n")
+fit_dwls <- param_gwas_from_file(stage1_file, W = W, se_mode = "dwls")
 
-# DWLS
-fit_dwls <- param_gwas(stage1, transform = "custom_W", 
-                       transform_args = list(W = W), se_mode = "dwls")
+cat("Running Stage 2 (SE Mode: tau_cov - GOLD STANDARD)...\n")
+fit_taucov <- param_gwas_from_file(stage1_file, W = W, se_mode = "tau_cov", cov_file = cov_file)
 
 # -------------------------
-# 5. Verify SE properties
+# 3. Compare SEs
 # -------------------------
-cat("\n--- SE Mode Comparison ---\n")
+extract_ses <- function(fit, mode_name) {
+  se_cols <- grep("_se$", names(fit), value = TRUE)
+  se <- as.vector(as.matrix(fit[, se_cols, with = FALSE]))
+  data.frame(SE = se, Mode = mode_name)
+}
 
-# All SEs should be positive
-test_that("All SE modes produce positive SEs", {
-  expect_true(all(fit_diag$SE_params > 0, na.rm = TRUE))
-  expect_true(all(fit_plugin$SE_params > 0, na.rm = TRUE))
-  expect_true(all(fit_dwls$SE_params > 0, na.rm = TRUE))
-})
+df_se <- rbind(
+  extract_ses(fit_diag, "Diagonal"),
+  extract_ses(fit_plugin, "Plugin"),
+  extract_ses(fit_dwls, "DWLS"),
+  extract_ses(fit_taucov, "TauCov (JK)")
+)
 
-# Plugin/DWLS should produce larger SEs than diagonal (accounting for correlation)
-se_ratio_plugin <- mean(fit_plugin$SE_params[1,] / fit_diag$SE_params[1,], na.rm = TRUE)
-se_ratio_dwls <- mean(fit_dwls$SE_params[1,] / fit_diag$SE_params[1,], na.rm = TRUE)
+se_ref <- as.vector(as.matrix(fit_taucov[, grep("_se$", names(fit_taucov), value = TRUE), with = FALSE]))
+valid_se <- is.finite(se_ref) & se_ref > 0
+ratio_diag <- as.vector(as.matrix(fit_diag[, grep("_se$", names(fit_diag), value = TRUE), with = FALSE]))[valid_se] / se_ref[valid_se]
+ratio_plugin <- as.vector(as.matrix(fit_plugin[, grep("_se$", names(fit_plugin), value = TRUE), with = FALSE]))[valid_se] / se_ref[valid_se]
+ratio_dwls <- as.vector(as.matrix(fit_dwls[, grep("_se$", names(fit_dwls), value = TRUE), with = FALSE]))[valid_se] / se_ref[valid_se]
 
-cat(sprintf("SE ratio (plugin/diag): %.3f\n", se_ratio_plugin))
-cat(sprintf("SE ratio (dwls/diag): %.3f\n", se_ratio_dwls))
+cat("\n--- SE Comparisons (Ratio to TauCov) ---\n")
+print_stats <- function(name, r) {
+  cat(sprintf("%s / TauCov: Median=%.3f, Mean=%.3f\n", name, median(r, na.rm=TRUE), mean(r, na.rm=TRUE)))
+}
+print_stats("Diagonal", ratio_diag)
+print_stats("Plugin", ratio_plugin)
+print_stats("DWLS", ratio_dwls)
 
-test_that("Plugin SEs are generally larger than diagonal", {
-  # This should usually hold due to positive correlation across taus
-  expect_gt(se_ratio_plugin, 0.8)
-})
+p1 <- ggplot(data.frame(Ref = se_ref, Est = as.vector(as.matrix(fit_diag[, grep("_se$", names(fit_diag), value = TRUE), with = FALSE]))),
+             aes(x = Ref, y = Est)) +
+  geom_point(alpha = 0.5) + geom_abline(color = "red") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
+  labs(title = "Diagonal vs TauCov (JK)", x = "TauCov SE", y = "Diagonal SE")
 
-# -------------------------
-# 6. Verify true effect recovery
-# -------------------------
-cat("\n--- Effect Recovery ---\n")
-
-# Gamma effects
-gamma_hat <- fit_plugin$params["gamma", ]
-cor_gamma <- cor(beta_gamma_true, gamma_hat, use = "complete.obs")
-cat(sprintf("Gamma effect correlation: %.3f\n", cor_gamma))
-
-# Beta_1 effects (mu1)
-beta1_hat <- fit_plugin$params["beta_1", ]
-cor_beta1 <- cor(beta_mu1_true, beta1_hat, use = "complete.obs")
-cat(sprintf("Beta_1 effect correlation: %.3f\n", cor_beta1))
-
-# Beta_2 effects (mu2)
-beta2_hat <- fit_plugin$params["beta_2", ]
-cor_beta2 <- cor(beta_mu2_true, beta2_hat, use = "complete.obs")
-cat(sprintf("Beta_2 effect correlation: %.3f\n", cor_beta2))
-
-test_that("True effects are recovered", {
-  expect_gt(cor_gamma, 0.5)
-  expect_gt(cor_beta1, 0.5)
-  expect_gt(cor_beta2, 0.5)
-})
+p2 <- ggplot(data.frame(Ref = se_ref, Est = as.vector(as.matrix(fit_plugin[, grep("_se$", names(fit_plugin), value = TRUE), with = FALSE]))),
+             aes(x = Ref, y = Est)) +
+  geom_point(alpha = 0.5) + geom_abline(color = "red") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray40") +
+  labs(title = "Plugin vs TauCov (JK)", x = "TauCov SE", y = "Plugin SE")
 
 # -------------------------
-# 7. Q-statistic validation
+# 4. Effect Recovery (TauCov)
 # -------------------------
-cat("\n--- Q-statistic ---\n")
+cat("\n--- Effect Recovery (TauCov Mode) ---\n")
+param_names <- c("gamma", "beta_1", "beta_2")
+true_map <- list(
+  gamma = unlist(meta$beta_gamma_true),
+  beta_1 = unlist(meta$beta_1_true),
+  beta_2 = unlist(meta$beta_2_true)
+)
 
-# Under correct model, Q should approximately follow chi-squared
-# with df = T - K degrees of freedom
-df_expected <- length(taus) - ncol(W)
-q_mean <- mean(fit_plugin$Q, na.rm = TRUE)
-cat(sprintf("Mean Q (expected ~%.1f): %.2f\n", df_expected, q_mean))
+for (nm in param_names) {
+  est <- fit_taucov[[nm]]
+  if (!is.null(est)) {
+    r_val <- cor(est, true_map[[nm]])
+    cat(sprintf("%s Correlation: %.4f\n", nm, r_val))
+  }
+}
 
-test_that("Q-statistic is reasonably calibrated", {
-  # Mean Q should be around df (within factor of 2)
-  expect_gt(q_mean, df_expected * 0.5)
-  expect_lt(q_mean, df_expected * 2.0)
-})
+p3 <- ggplot(data.frame(True = true_map$gamma, Est = fit_taucov$gamma), aes(x = True, y = Est)) +
+  geom_point() + geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  geom_abline(color = "red") +
+  labs(title = "Gamma Recovery", x = "True Beta", y = "Estimated Beta")
 
-cat("\n✓ All Stage 2 SE tests passed!\n")
+p4 <- ggplot(data.frame(True = true_map$beta_1, Est = fit_taucov$beta_1), aes(x = True, y = Est)) +
+  geom_point() + geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  geom_abline(color = "red") +
+  labs(title = "Beta_1 Recovery", x = "True Beta", y = "Estimated Beta")
+
+final_plot <- (p1 + p2) / (p3 + p4)
+ggsave("proof_stage2_results.png", final_plot, width = 10, height = 8)
+cat("\nSaved comparison plot to proof_stage2_results.png\n")

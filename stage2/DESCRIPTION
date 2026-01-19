@@ -1,4 +1,4 @@
-Package: fungwas
+Package: fungwasStage2
 Title: Flexible Functional GWAS via RIF Quantile Regression
 Version: 0.1.0
 Description: RIF-based quantile GWAS with parametric mapping. Stage 2 of the 

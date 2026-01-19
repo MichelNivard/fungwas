@@ -13,7 +13,7 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 
 // compute_calibrated_se
 NumericMatrix compute_calibrated_se(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
-RcppExport SEXP _fungwas_compute_calibrated_se(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
+RcppExport SEXP _fungwasStage2_compute_calibrated_se(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -27,11 +27,11 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_fungwas_compute_calibrated_se", (DL_FUNC) &_fungwas_compute_calibrated_se, 4},
+    {"_fungwasStage2_compute_calibrated_se", (DL_FUNC) &_fungwasStage2_compute_calibrated_se, 4},
     {NULL, NULL, 0}
 };
 
-RcppExport void R_init_fungwas(DllInfo *dll) {
+RcppExport void R_init_fungwasStage2(DllInfo *dll) {
     R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
     R_useDynamicSymbols(dll, FALSE);
 }

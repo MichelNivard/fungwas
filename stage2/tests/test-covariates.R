@@ -4,7 +4,7 @@
 # ============================================================
 
 devtools::document()
-library(fungwas)
+library(fungwasStage2)
 library(ggplot2)
 
 set.seed(42)

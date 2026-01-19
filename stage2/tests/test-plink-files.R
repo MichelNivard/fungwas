@@ -9,7 +9,7 @@
 # devtools::install_github("MichelNivard/fungwas")
 devtools::document()
 library(bigsnpr)
-library(fungwas)
+library(fungwasStage2)
 
 set.seed(123)
 

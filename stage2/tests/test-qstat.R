@@ -3,7 +3,7 @@
 # ============================================================
 
 devtools::document()
-library(fungwas)
+library(fungwasStage2)
 
 set.seed(123)
 

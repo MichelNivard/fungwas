@@ -331,6 +331,7 @@ param_gwas_from_file <- function(
   # Read Stage 1
   message("Reading Stage 1 file: ", stage1_file)
   stage1_dt <- data.table::fread(stage1_file)
+  data.table::setDT(stage1_dt)
   
   # Extract beta/SE columns
   beta_cols <- grep("^beta_tau_", names(stage1_dt), value = TRUE)
@@ -338,8 +339,8 @@ param_gwas_from_file <- function(
   
   taus <- as.numeric(sub("^beta_tau_", "", beta_cols))
   
-  Q_slope <- t(as.matrix(stage1_dt[, ..beta_cols]))
-  SE_tau <- t(as.matrix(stage1_dt[, ..se_cols]))
+  Q_slope <- t(as.matrix(stage1_dt[, beta_cols, with = FALSE]))
+  SE_tau <- t(as.matrix(stage1_dt[, se_cols, with = FALSE]))
   
   # Build stage1 list
   stage1 <- list(
@@ -387,7 +388,7 @@ param_gwas_from_file <- function(
   )
   
   # Build output data.table
-  out_dt <- stage1_dt[, .(snp_id, chr, bp, a1, a2)]
+  out_dt <- stage1_dt[, c("snp_id", "chr", "bp", "a1", "a2"), with = FALSE]
   
   # Add parameters and SEs
   for (i in seq_len(nrow(result$params))) {
@@ -401,4 +402,3 @@ param_gwas_from_file <- function(
   
   out_dt
 }
-

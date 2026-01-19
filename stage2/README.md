@@ -14,6 +14,7 @@ This R package implements "Stage 2" of the FungWas framework: mapping quantile G
 
 ```r
 devtools::install(".")
+library(fungwasStage2)
 ```
 
 ## Core Functions
