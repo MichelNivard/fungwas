@@ -1,0 +1,2 @@
+[console_scripts]
+fungwas-stage1 = fungwas_stage1.cli:main

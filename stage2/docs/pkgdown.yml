@@ -1,0 +1,12 @@
+pandoc: 3.6.3
+pkgdown: 2.1.3
+pkgdown_sha: ~
+articles:
+  fungwas-overview: fungwas-overview.html
+  GWAS-in-R: GWAS-in-R.html
+  Q-stat: Q-stat.html
+  weight-building: weight-building.html
+last_built: 2025-10-01T16:10Z
+urls:
+  reference: https://michelnivard.github.io/fungwas/reference
+  article: https://michelnivard.github.io/fungwas/articles

@@ -1,0 +1,12 @@
+name: fungwas-stage1
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy>=1.24
+  - scipy
+  - bgen-reader>=4.0
+  - pybind11>=2.11
+  - armadillo
+  - pytest
+  - pip

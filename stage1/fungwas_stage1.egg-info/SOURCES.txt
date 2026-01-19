@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+fungwas_stage1/__init__.py
+fungwas_stage1/cli.py
+fungwas_stage1/core.py
+fungwas_stage1.egg-info/PKG-INFO
+fungwas_stage1.egg-info/SOURCES.txt
+fungwas_stage1.egg-info/dependency_links.txt
+fungwas_stage1.egg-info/entry_points.txt
+fungwas_stage1.egg-info/requires.txt
+fungwas_stage1.egg-info/top_level.txt
+tests/test_jk_equivalence.py

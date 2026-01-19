@@ -1,0 +1,7 @@
+numpy>=1.24
+scipy
+bgen-reader>=4.0
+
+[dev]
+pytest
+pytest-cov

@@ -1,0 +1,32 @@
+Package: fungwas
+Title: Flexible Functional GWAS via RIF Quantile Regression
+Version: 0.1.0
+Description: RIF-based quantile GWAS with parametric mapping. Stage 2 of the 
+    FungWas pipeline: maps tau-level SNP effects into distributional parameters
+    (means, variances, mixture components) with proper standard error estimation.
+Authors@R: c(
+    person("Michel", "Nivard", email = "m.g.nivard@bristol.ac.uk", 
+           role = c("aut", "cre")),
+    person("Fergus", "Hamilton", email = "fh6520@bristol.ac.uk", 
+           role = c("aut"))
+    )
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends: R (>= 4.1.0)
+Imports: 
+    stats,
+    Rcpp
+Suggests: 
+    ggplot2,
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    data.table
+LinkingTo: 
+    Rcpp,
+    RcppArmadillo
+VignetteBuilder: knitr
+URL: https://michelnivard.github.io/fungwas/
+Config/testthat/edition: 3
