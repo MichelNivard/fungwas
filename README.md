@@ -115,6 +115,35 @@ fungwas-stage1 \
 
 See [Stage 1 Documentation](stage1/README.md) for full CLI options.
 
+### Optional: Use REGENIE for ultra-fast Stage 1
+
+If you want speed over detailed jackknife SEs, you can run Stage 1 via
+REGENIE by transforming phenotypes into RIFs and running a standard GWAS.
+The `prepare_regenie()` helper in the Stage 2 R package writes the required
+phenotype and covariate files.
+
+```r
+library(fungwasStage2)
+library(data.table)
+
+pheno <- fread("inputs/regenie_pheno_shrink_0.7.txt")
+covar <- fread("inputs/regenie_covar.txt")
+
+prepare_regenie(
+  pheno_df = pheno,
+  covar_df = covar,
+  phenotypes = c("testosterone_shrink_0.7_male"),
+  taus = seq(0.1, 0.9, 0.05),
+  covar_cols = setdiff(names(covar), c("FID", "IID")),
+  out_inputs = "regenie_inputs",
+  out_rtau = "rtau"
+)
+```
+
+Then run REGENIE step 2 with each `RIF_tau*.txt` phenotype column. The
+resulting per-tau betas/SEs can be combined for Stage 2 mapping using
+`param_gwas_from_file()`.
+
 ### Step 2: Parametric Mapping
 
 In R, load the results and map them to your model of interest.

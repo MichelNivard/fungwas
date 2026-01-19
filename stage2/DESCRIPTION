@@ -17,13 +17,13 @@ RoxygenNote: 7.3.3
 Depends: R (>= 4.1.0)
 Imports: 
     stats,
-    Rcpp
+    Rcpp,
+    data.table
 Suggests: 
     ggplot2,
     knitr,
     rmarkdown,
-    testthat (>= 3.0.0),
-    data.table
+    testthat (>= 3.0.0)
 LinkingTo: 
     Rcpp,
     RcppArmadillo

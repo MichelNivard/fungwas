@@ -52,3 +52,26 @@ Proof / Validation scripts are located in `tests/`. These are standalone R scrip
 cd tests
 Rscript test-vQTL.R
 ```
+
+## REGENIE inputs (fast Stage 1)
+
+If you want to run Stage 1 with REGENIE, use `prepare_regenie()` to generate
+RIF phenotypes and covariates.
+
+```r
+library(fungwasStage2)
+library(data.table)
+
+pheno <- fread("inputs/regenie_pheno_shrink_0.7.txt")
+covar <- fread("inputs/regenie_covar.txt")
+
+prepare_regenie(
+  pheno_df = pheno,
+  covar_df = covar,
+  phenotypes = c("testosterone_shrink_0.7_male"),
+  taus = seq(0.1, 0.9, 0.05),
+  covar_cols = setdiff(names(covar), c("FID", "IID")),
+  out_inputs = "regenie_inputs",
+  out_rtau = "rtau"
+)
+```
