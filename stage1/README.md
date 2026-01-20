@@ -122,6 +122,7 @@ to the single-phenotype kernel to avoid extra overhead.
   still processes in memory batches (`--batch-size`, default 500).
 
 This keeps targeted scans fast without paying the cost of rewriting full BGENs.
+Temporary subset BGEN files are cleaned up automatically when the run finishes.
 
 ### Multi-phenotype C++ kernel (advanced)
 

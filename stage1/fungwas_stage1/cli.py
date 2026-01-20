@@ -14,6 +14,7 @@ Outputs:
 """
 
 import argparse
+import atexit
 import gzip
 import logging
 import os
@@ -55,6 +56,22 @@ def get_memory_mb() -> float:
 def log_mem(msg: str):
     """Log message with memory usage."""
     logger.info(f"[MEM {get_memory_mb():.0f}MB] {msg}")
+
+
+def register_temp_bgen_cleanup(path: Optional[str]):
+    if not path:
+        return
+
+    def _cleanup():
+        try:
+            os.unlink(path)
+            logger.info(f"Removed temporary BGEN: {path}")
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            logger.warning(f"Failed to remove temporary BGEN {path}: {exc}")
+
+    atexit.register(_cleanup)
 
 
 def read_table_whitespace(file_path: str) -> list[dict]:
@@ -401,6 +418,7 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
         log_mem("Using bgenix to extract SNP subset before streaming.")
         temp_bgen = extract_snps_bgenix(args.bgen, args.snps, args.bgenix_path, out_dir)
+        register_temp_bgen_cleanup(temp_bgen)
         target_bgen = temp_bgen
     else:
         log_mem("No SNP list provided; streaming full BGEN directly.")
