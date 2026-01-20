@@ -89,6 +89,13 @@ fungwas-stage1 \
 Provide comma-separated phenotype columns to scan multiple phenotypes with one
 genotype pass. Outputs are suffixed with the phenotype name.
 
+Note: the multi-phenotype path uses the intersection of samples with
+non-missing values across all phenotypes (and covariates, if provided). This
+means phenotypes with more missingness reduce the sample set for *all*
+phenotypes in the joint run. This tradeoff enables shared residualization and
+block computations for speed. If you need per-phenotype sample sizes, run each
+phenotype separately using the single-phenotype CLI.
+
 ```bash
 fungwas-stage1 \
     --bgen data.chr22.bgen \
@@ -106,6 +113,15 @@ fungwas-stage1 \
 
 If `--pheno-cols` contains a single phenotype, Stage 1 automatically falls back
 to the single-phenotype kernel to avoid extra overhead.
+
+### BGEN streaming vs SNP subset extraction
+
+- If you supply `--snps`, Stage 1 uses `bgenix` once to build a temporary
+  subset BGEN (RSID list), then streams that subset in batches.
+- If you omit `--snps`, Stage 1 streams the full chromosome BGEN directly and
+  still processes in memory batches (`--batch-size`, default 500).
+
+This keeps targeted scans fast without paying the cost of rewriting full BGENs.
 
 ### Multi-phenotype C++ kernel (advanced)
 

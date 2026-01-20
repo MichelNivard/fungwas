@@ -319,7 +319,8 @@ def main():
     parser.add_argument('--pheno-col', dest='pheno_col', required=False,
                         help='Name of the phenotype column to analyze')
     parser.add_argument('--pheno-cols', dest='pheno_cols', default=None,
-                        help='Comma-separated phenotype columns to analyze in one pass')
+                        help='Comma-separated phenotype columns to analyze in one pass '
+                             '(uses only samples with non-missing values across all phenotypes/covariates)')
     parser.add_argument('--out', required=True,
                         help='Output prefix (creates {out}.stage1.tsv.gz, {out}.cov.gz)')
     
@@ -398,8 +399,11 @@ def main():
     if args.snps:
         out_dir = os.path.dirname(args.out) or '.'
         os.makedirs(out_dir, exist_ok=True)
+        log_mem("Using bgenix to extract SNP subset before streaming.")
         temp_bgen = extract_snps_bgenix(args.bgen, args.snps, args.bgenix_path, out_dir)
         target_bgen = temp_bgen
+    else:
+        log_mem("No SNP list provided; streaming full BGEN directly.")
     
     # Open BGEN
     from bgen.reader import BgenFile
