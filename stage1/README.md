@@ -124,6 +124,13 @@ to the single-phenotype kernel to avoid extra overhead.
 This keeps targeted scans fast without paying the cost of rewriting full BGENs.
 Temporary subset BGEN files are cleaned up automatically when the run finishes.
 
+### Why this BGEN strategy
+
+Benchmarks on UK Biobank chr22/chr1 show that `bgenix` + `BgenFile` is faster
+for targeted SNP lists than `bgen_reader` (even with chunked reads). For full
+chromosome scans, Stage 1 skips `bgenix` and streams the original BGEN directly
+to avoid unnecessary IO and temp file churn.
+
 ### Multi-phenotype C++ kernel (advanced)
 
 The C++ pybind module exposes `process_block_dense_impl`/`process_block_sparse_impl`
