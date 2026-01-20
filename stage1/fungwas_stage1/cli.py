@@ -340,7 +340,7 @@ def main():
                         help='Comma-separated tau values')
     parser.add_argument('--blocks', type=int, default=25,
                         help='Number of jackknife blocks')
-    parser.add_argument('--batch-size', dest='batch_size', type=int, default=1000,
+    parser.add_argument('--batch-size', dest='batch_size', type=int, default=500,
                         help='SNPs per batch for memory efficiency')
     parser.add_argument('--threads', type=int, default=1,
                         help='OpenMP threads for C++ kernel')

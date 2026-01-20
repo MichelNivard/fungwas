@@ -77,7 +77,7 @@ fungwas-stage1 \
     --snps chr22_hm3.txt \
     --taus "0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90" \
     --blocks 25 \
-    --batch-size 1000 \
+    --batch-size 500 \
     --threads 8 \
     --bgenix-path /path/to/bgenix \
     --output-rtau \
@@ -98,7 +98,7 @@ fungwas-stage1 \
     --snps chr22_hm3.txt \
     --taus "0.10,0.50,0.90" \
     --blocks 25 \
-    --batch-size 1000 \
+    --batch-size 500 \
     --threads 8 \
     --bgenix-path /path/to/bgenix \
     --out results/chr22
