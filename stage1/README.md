@@ -17,8 +17,8 @@ pip install .
 ### Conda environment notes (BGEN support)
 
 Stage 1 relies on the Python `bgen` module for BGEN streaming, so the conda
-environment installs it via pip. This avoids HPC module requirements and keeps
-the CLI self-contained.
+environment installs it via pip (currently pinned to `bgen==1.9.7`). This avoids
+HPC module requirements and keeps the CLI self-contained.
 
 ```bash
 conda env update -n fungwas-stage1 -f environment.yml
