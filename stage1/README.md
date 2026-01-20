@@ -141,6 +141,19 @@ FID IID age sex PC1 PC2 PC3 ...
 1001 1001 45 1 0.012 -0.034 0.056 ...
 ```
 
+### SNP list file (single-column RSIDs)
+
+When using `--snps`, provide a single-column file of RSIDs (one per line), e.g.:
+
+```
+rs123
+rs456
+rs789
+```
+
+The CLI passes this to `bgenix -incl-rsids`, so `chr:pos` formats are not
+accepted in this file.
+
 ## Output Files
 
 | File | Description |
