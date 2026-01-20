@@ -123,7 +123,7 @@ for betas, ses in results:
 
 ## Input Files
 
-### Phenotype file (space-delimited)
+### Phenotype file (space/tab delimited)
 
 Standard format with FID, IID, and raw phenotype column(s):
 ```
@@ -134,7 +134,7 @@ FID IID testosterone age_at_assessment
 
 The `--pheno-col` argument specifies which column to analyze. FungWas computes RIF internally.
 
-### Covariate file (space-delimited)
+### Covariate file (space/tab delimited)
 
 ```
 FID IID age sex PC1 PC2 PC3 ...

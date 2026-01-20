@@ -57,6 +57,24 @@ def log_mem(msg: str):
     logger.info(f"[MEM {get_memory_mb():.0f}MB] {msg}")
 
 
+def read_table_whitespace(file_path: str) -> list[dict]:
+    """Read whitespace-delimited tables (space or tab) into list of dicts."""
+    rows = []
+    with open(file_path) as f:
+        header = None
+        for line in f:
+            if not line.strip():
+                continue
+            parts = line.strip().split()
+            if header is None:
+                header = parts
+                continue
+            if len(parts) < len(header):
+                continue
+            rows.append(dict(zip(header, parts)))
+    return rows
+
+
 def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str], 
                     taus: np.ndarray, keep_file: Optional[str] = None) -> tuple:
     """
@@ -86,8 +104,6 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
     q_tau : array (T,)
         Empirical quantiles
     """
-    import csv
-    
     # Load keep list if provided
     keep_set = None
     if keep_file:
@@ -102,9 +118,7 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
     
     log_mem(f"Loading phenotypes from {pheno_file}")
     
-    with open(pheno_file) as f:
-        reader = csv.DictReader(f, delimiter=' ')
-        pheno_data = list(reader)
+    pheno_data = read_table_whitespace(pheno_file)
     
     # Check phenotype column exists
     if pheno_col not in pheno_data[0]:
@@ -114,9 +128,7 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
     # Load covariates if provided
     if covar_file:
         log_mem(f"Loading covariates from {covar_file}")
-        with open(covar_file) as f:
-            reader = csv.DictReader(f, delimiter=' ')
-            covar_data = list(reader)
+        covar_data = read_table_whitespace(covar_file)
         covar_map = {r['FID']: r for r in covar_data}
         covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
     else:
@@ -183,8 +195,6 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
     """
     Load multiple phenotypes and compute residualized RIF matrices.
     """
-    import csv
-
     keep_set = None
     if keep_file:
         log_mem(f"Loading sample keep list from {keep_file}")
@@ -198,9 +208,7 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
 
     log_mem(f"Loading phenotypes from {pheno_file}")
 
-    with open(pheno_file) as f:
-        reader = csv.DictReader(f, delimiter=' ')
-        pheno_data = list(reader)
+    pheno_data = read_table_whitespace(pheno_file)
 
     for col in pheno_cols:
         if col not in pheno_data[0]:
@@ -209,9 +217,7 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
 
     if covar_file:
         log_mem(f"Loading covariates from {covar_file}")
-        with open(covar_file) as f:
-            reader = csv.DictReader(f, delimiter=' ')
-            covar_data = list(reader)
+        covar_data = read_table_whitespace(covar_file)
         covar_map = {r['FID']: r for r in covar_data}
         covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
     else:
