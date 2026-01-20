@@ -141,6 +141,55 @@ def compute_block_scores(G: np.ndarray, Y_resid: np.ndarray, Q: np.ndarray,
         return _compute_block_scores_numpy(G, Y_resid, Q, block_ids, n_blocks, min_mac, min_var)
 
 
+def compute_block_scores_multi(G: np.ndarray, RIF_resid_list: list[np.ndarray], Q: np.ndarray,
+                               block_ids: np.ndarray, n_blocks: int,
+                               min_mac: float = 5.0, min_var: float = 1e-8,
+                               n_threads: int = 1) -> list[np.ndarray]:
+    """
+    Compute per-block sufficient statistics for multiple phenotypes.
+
+    Parameters
+    ----------
+    G : array (N, M)
+        Genotype dosages (may contain NaN for missing)
+    RIF_resid_list : list of arrays (N, T)
+        Residualized RIF matrices
+    Q : array (N, K)
+        QR basis for covariates
+    block_ids : array (N,)
+        Block assignment for each sample (0 to n_blocks-1)
+    n_blocks : int
+        Number of jackknife blocks
+    min_mac : float
+        Minimum minor allele count filter
+    min_var : float
+        Minimum variance filter
+    n_threads : int
+        Number of OpenMP threads (if C++ available)
+
+    Returns
+    -------
+    list of arrays (M, n_blocks, 1+T)
+        Per-SNP, per-block statistics for each phenotype
+    """
+    if not isinstance(RIF_resid_list, (list, tuple)):
+        raise ValueError("RIF_resid_list must be a list of arrays")
+
+    if HAVE_CPP and hasattr(cpp_ext, "stage1_block_scores_multi"):
+        return cpp_ext.stage1_block_scores_multi(
+            np.asfortranarray(G, dtype=np.float64),
+            [np.asfortranarray(rif, dtype=np.float64) for rif in RIF_resid_list],
+            np.asfortranarray(Q, dtype=np.float64),
+            block_ids.astype(np.int32),
+            n_blocks, min_mac, min_var, n_threads
+        )
+
+    return [
+        _compute_block_scores_numpy(G, rif, Q, block_ids, n_blocks, min_mac, min_var)
+        for rif in RIF_resid_list
+    ]
+
+
 def _compute_block_scores_numpy(G, Y_resid, Q, block_ids, n_blocks, min_mac, min_var):
     """Pure numpy fallback (slower)."""
     N, M = G.shape

@@ -14,6 +14,16 @@ pip install .
 pip install .
 ```
 
+### Conda environment notes (BGEN support)
+
+Stage 1 relies on the Python `bgen` module for BGEN streaming, so the conda
+environment installs it via pip. This avoids HPC module requirements and keeps
+the CLI self-contained.
+
+```bash
+conda env update -n fungwas-stage1 -f environment.yml
+```
+
 **Requirement:** `bgenix` must be available for SNP extraction. Install via:
 ```bash
 # On HPC, typically available as module
@@ -72,6 +82,43 @@ fungwas-stage1 \
     --bgenix-path /path/to/bgenix \
     --output-rtau \
     --out results/chr22
+```
+
+#### Multi-phenotype CLI (single BGEN pass)
+
+Provide comma-separated phenotype columns to scan multiple phenotypes with one
+genotype pass. Outputs are suffixed with the phenotype name.
+
+```bash
+fungwas-stage1 \
+    --bgen data.chr22.bgen \
+    --pheno phenotypes.txt \
+    --pheno-cols "phenotype_a,phenotype_b" \
+    --covar covariates.txt \
+    --snps chr22_hm3.txt \
+    --taus "0.10,0.50,0.90" \
+    --blocks 25 \
+    --batch-size 1000 \
+    --threads 8 \
+    --bgenix-path /path/to/bgenix \
+    --out results/chr22
+```
+
+If `--pheno-cols` contains a single phenotype, Stage 1 automatically falls back
+to the single-phenotype kernel to avoid extra overhead.
+
+### Multi-phenotype C++ kernel (advanced)
+
+The C++ pybind module exposes `process_block_dense_impl`/`process_block_sparse_impl`
+for running multiple RIF matrices against the same genotype block. This shares
+the genotype residualization and leverage calculations across phenotypes.
+
+```python
+from fungwas_stage1 import _stage1_cpp
+
+results = _stage1_cpp.process_block_dense_impl(G, [rif1, rif2], Q)
+for betas, ses in results:
+    print(betas.shape, ses.shape)
 ```
 
 ## Input Files

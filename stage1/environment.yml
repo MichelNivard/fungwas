@@ -10,3 +10,5 @@ dependencies:
   - armadillo
   - pytest
   - pip
+  - pip:
+      - bgen==1.9.7

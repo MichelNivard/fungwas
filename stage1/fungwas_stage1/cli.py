@@ -31,6 +31,7 @@ from .core import (
     compute_rif,
     residualize,
     compute_block_scores,
+    compute_block_scores_multi,
     compute_covariance_from_blocks,
 )
 
@@ -177,6 +178,106 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
     return sample_ids, RIF_resid, Q, q_tau
 
 
+def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Optional[str],
+                          taus: np.ndarray, keep_file: Optional[str] = None) -> tuple:
+    """
+    Load multiple phenotypes and compute residualized RIF matrices.
+    """
+    import csv
+
+    keep_set = None
+    if keep_file:
+        log_mem(f"Loading sample keep list from {keep_file}")
+        keep_set = set()
+        with open(keep_file) as f:
+            for line in f:
+                parts = line.strip().split()
+                if parts:
+                    keep_set.add(parts[0])
+        log_mem(f"Keeping {len(keep_set)} samples")
+
+    log_mem(f"Loading phenotypes from {pheno_file}")
+
+    with open(pheno_file) as f:
+        reader = csv.DictReader(f, delimiter=' ')
+        pheno_data = list(reader)
+
+    for col in pheno_cols:
+        if col not in pheno_data[0]:
+            available = [c for c in pheno_data[0].keys() if c not in ['FID', 'IID']]
+            raise ValueError(f"Phenotype column '{col}' not found. Available: {available}")
+
+    if covar_file:
+        log_mem(f"Loading covariates from {covar_file}")
+        with open(covar_file) as f:
+            reader = csv.DictReader(f, delimiter=' ')
+            covar_data = list(reader)
+        covar_map = {r['FID']: r for r in covar_data}
+        covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
+    else:
+        covar_map = {}
+        covar_cols = []
+
+    sample_ids = []
+    y_values = {col: [] for col in pheno_cols}
+    X_list = []
+
+    for row in pheno_data:
+        fid = row['FID']
+        if keep_set is not None and fid not in keep_set:
+            continue
+
+        try:
+            pheno_vals = []
+            for col in pheno_cols:
+                val = float(row[col]) if row[col] != 'NA' else np.nan
+                pheno_vals.append(val)
+            if np.any(np.isnan(pheno_vals)):
+                continue
+
+            if covar_file:
+                if fid not in covar_map:
+                    continue
+                c_row = covar_map[fid]
+                x_vals = [float(c_row[c]) if c_row[c] != 'NA' else np.nan for c in covar_cols]
+                if np.any(np.isnan(x_vals)):
+                    continue
+                X_list.append(x_vals)
+
+            sample_ids.append(fid)
+            for col, val in zip(pheno_cols, pheno_vals):
+                y_values[col].append(val)
+
+        except (ValueError, KeyError):
+            continue
+
+    N = len(sample_ids)
+    log_mem(f"Loaded {N} samples with valid phenotypes")
+
+    if covar_file:
+        X = np.column_stack([np.ones(N), np.array(X_list)])
+    else:
+        X = np.ones((N, 1))
+
+    log_mem(f"Residualizing phenotypes on {X.shape[1]} covariates...")
+    Q, _ = np.linalg.qr(X)
+
+    RIF_resid_list = []
+    q_tau_list = []
+
+    for col in pheno_cols:
+        log_mem(f"Computing RIF matrix for {col}...")
+        t_rif = time.perf_counter()
+        Y = np.array(y_values[col])
+        RIF, q_tau, _ = compute_rif(Y, taus)
+        log_mem(f"RIF build for {col}: {time.perf_counter() - t_rif:.2f}s")
+        RIF_resid = RIF - Q @ (Q.T @ RIF)
+        RIF_resid_list.append(RIF_resid)
+        q_tau_list.append(q_tau)
+
+    return sample_ids, RIF_resid_list, Q, q_tau_list
+
+
 def extract_snps_bgenix(bgen_path: str, snp_file: str, bgenix_path: str,
                          out_dir: str) -> str:
     """Extract SNPs using bgenix, return path to temp BGEN."""
@@ -209,8 +310,10 @@ def main():
                         help='Path to BGEN file')
     parser.add_argument('--pheno', required=True,
                         help='Path to phenotype file (space-delimited, with FID IID and phenotype column)')
-    parser.add_argument('--pheno-col', dest='pheno_col', required=True,
+    parser.add_argument('--pheno-col', dest='pheno_col', required=False,
                         help='Name of the phenotype column to analyze')
+    parser.add_argument('--pheno-cols', dest='pheno_cols', default=None,
+                        help='Comma-separated phenotype columns to analyze in one pass')
     parser.add_argument('--out', required=True,
                         help='Output prefix (creates {out}.stage1.tsv.gz, {out}.cov.gz)')
     
@@ -247,6 +350,9 @@ def main():
                         help='Also output R_tau correlation matrix for plugin_cor')
     
     args = parser.parse_args()
+
+    if not args.pheno_col and not args.pheno_cols:
+        parser.error("Provide --pheno-col or --pheno-cols")
     
     # Parse taus
     taus = np.array([float(t) for t in args.taus.split(',')])
@@ -254,11 +360,29 @@ def main():
     
     log_mem(f"Starting FungWas Stage 1 (taus={T}, blocks={args.blocks})")
     t_start = time.time()
+    t_load = time.perf_counter()
     
-    # Load phenotypes and compute RIF internally
-    sample_ids, RIF_resid, Q, q_tau = load_phenotypes(
-        args.pheno, args.pheno_col, args.covar, taus, keep_file=args.keep
-    )
+    if args.pheno_cols:
+        pheno_cols = [c.strip() for c in args.pheno_cols.split(',') if c.strip()]
+    else:
+        pheno_cols = [args.pheno_col]
+
+    use_multi = len(pheno_cols) > 1
+    if not use_multi and args.pheno_cols:
+        log_mem("Single phenotype provided via --pheno-cols; using single-phenotype path.")
+
+    if not use_multi:
+        sample_ids, RIF_resid, Q, q_tau = load_phenotypes(
+            args.pheno, pheno_cols[0], args.covar, taus, keep_file=args.keep
+        )
+        RIF_resid_list = [RIF_resid]
+        q_tau_list = [q_tau]
+    else:
+        log_mem(f"Loading {len(pheno_cols)} phenotypes in one pass...")
+        sample_ids, RIF_resid_list, Q, q_tau_list = load_phenotypes_multi(
+            args.pheno, pheno_cols, args.covar, taus, keep_file=args.keep
+        )
+    log_mem(f"Phenotype load time: {time.perf_counter() - t_load:.2f}s")
     N = len(sample_ids)
     
     # Setup BGEN
@@ -283,11 +407,12 @@ def main():
     bgen_indices = np.array([idx for idx in matched_indices if idx is not None])
     
     # Filter to matched samples
-    RIF_resid = RIF_resid[valid_mask]
+    RIF_resid_list = [rif[valid_mask] for rif in RIF_resid_list]
     Q = Q[valid_mask]
     N_matched = len(bgen_indices)
     
     log_mem(f"Matched {N_matched}/{N} samples to BGEN")
+    t_batches = time.perf_counter()
     
     # Assign jackknife blocks
     np.random.seed(args.seed)
@@ -297,8 +422,18 @@ def main():
     out_dir = os.path.dirname(args.out) or '.'
     os.makedirs(out_dir, exist_ok=True)
     
-    out_tsv = f"{args.out}.stage1.tsv.gz"
-    out_cov = f"{args.out}.cov.gz"
+    def _sanitize_name(name: str) -> str:
+        return ''.join(c if c.isalnum() or c in ('-', '_') else '_' for c in name)
+
+    out_prefixes = []
+    for col in pheno_cols:
+        if len(pheno_cols) == 1:
+            out_prefixes.append(args.out)
+        else:
+            out_prefixes.append(f"{args.out}.{_sanitize_name(col)}")
+
+    out_tsv_list = [f"{prefix}.stage1.tsv.gz" for prefix in out_prefixes]
+    out_cov_list = [f"{prefix}.cov.gz" for prefix in out_prefixes]
     
     # Column headers
     cols = ['snp_id', 'chr', 'bp', 'a1', 'a2']
@@ -309,15 +444,23 @@ def main():
     n_cov_elements = T * (T + 1) // 2
     
     # For R_tau computation
-    all_betas = [] if args.output_rtau else None
+    all_betas_list = [([] if args.output_rtau else None) for _ in pheno_cols]
     
     # Process in batches
     total_snps = 0
     G_batch = np.zeros((N_matched, args.batch_size), dtype=np.float64, order='F')
     batch_info = []
     
-    with gzip.open(out_tsv, 'wt') as f_tsv, gzip.open(out_cov, 'wb') as f_cov:
-        f_tsv.write('\t'.join(cols) + '\n')
+    from contextlib import ExitStack
+
+    total_compute = 0.0
+    total_write = 0.0
+
+    with ExitStack() as stack:
+        f_tsv_list = [stack.enter_context(gzip.open(path, 'wt')) for path in out_tsv_list]
+        f_cov_list = [stack.enter_context(gzip.open(path, 'wb')) for path in out_cov_list]
+        for f_tsv in f_tsv_list:
+            f_tsv.write('\t'.join(cols) + '\n')
         
         idx_in_batch = 0
         
@@ -338,30 +481,44 @@ def main():
             if idx_in_batch >= args.batch_size:
                 t_batch = time.time()
                 
-                stats = compute_block_scores(
-                    G_batch, RIF_resid, Q, block_ids, args.blocks,
-                    n_threads=args.threads
-                )
-                
-                # Write results
-                for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
-                    if np.isnan(snp_stats[0, 0]):
-                        continue
-                    
-                    beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
-                    
-                    # TSV row
-                    row = list(info)
-                    for b, s in zip(beta, se):
-                        row.extend([f'{b:.6g}', f'{s:.6g}'])
-                    f_tsv.write('\t'.join(map(str, row)) + '\n')
-                    
-                    # Binary covariance (upper triangle, float32)
-                    cov_upper = Sigma[np.triu_indices(T)]
-                    f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
-                    
-                    if args.output_rtau:
-                        all_betas.append(beta)
+                t_compute = time.perf_counter()
+                if use_multi:
+                    stats_list = compute_block_scores_multi(
+                        G_batch, RIF_resid_list, Q, block_ids, args.blocks,
+                        n_threads=args.threads
+                    )
+                else:
+                    stats_list = [
+                        compute_block_scores(
+                            G_batch, RIF_resid_list[0], Q, block_ids, args.blocks,
+                            n_threads=args.threads
+                        )
+                    ]
+                total_compute += time.perf_counter() - t_compute
+
+                t_write = time.perf_counter()
+                for p_idx, stats in enumerate(stats_list):
+                    f_tsv = f_tsv_list[p_idx]
+                    f_cov = f_cov_list[p_idx]
+                    all_betas = all_betas_list[p_idx]
+
+                    for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
+                        if np.isnan(snp_stats[0, 0]):
+                            continue
+
+                        beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
+
+                        row = list(info)
+                        for b, s in zip(beta, se):
+                            row.extend([f'{b:.6g}', f'{s:.6g}'])
+                        f_tsv.write('\t'.join(map(str, row)) + '\n')
+
+                        cov_upper = Sigma[np.triu_indices(T)]
+                        f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+
+                        if args.output_rtau:
+                            all_betas.append(beta)
+                total_write += time.perf_counter() - t_write
                 
                 total_snps += args.batch_size
                 elapsed = time.time() - t_batch
@@ -372,27 +529,44 @@ def main():
         
         # Final partial batch
         if idx_in_batch > 0:
-            stats = compute_block_scores(
-                G_batch[:, :idx_in_batch], RIF_resid, Q, block_ids, args.blocks,
-                n_threads=args.threads
-            )
-            
-            for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
-                if np.isnan(snp_stats[0, 0]):
-                    continue
-                
-                beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
-                
-                row = list(info)
-                for b, s in zip(beta, se):
-                    row.extend([f'{b:.6g}', f'{s:.6g}'])
-                f_tsv.write('\t'.join(map(str, row)) + '\n')
-                
-                cov_upper = Sigma[np.triu_indices(T)]
-                f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
-                
-                if args.output_rtau:
-                    all_betas.append(beta)
+            t_compute = time.perf_counter()
+            if use_multi:
+                stats_list = compute_block_scores_multi(
+                    G_batch[:, :idx_in_batch], RIF_resid_list, Q, block_ids, args.blocks,
+                    n_threads=args.threads
+                )
+            else:
+                stats_list = [
+                    compute_block_scores(
+                        G_batch[:, :idx_in_batch], RIF_resid_list[0], Q, block_ids, args.blocks,
+                        n_threads=args.threads
+                    )
+                ]
+            total_compute += time.perf_counter() - t_compute
+
+            t_write = time.perf_counter()
+            for p_idx, stats in enumerate(stats_list):
+                f_tsv = f_tsv_list[p_idx]
+                f_cov = f_cov_list[p_idx]
+                all_betas = all_betas_list[p_idx]
+
+                for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
+                    if np.isnan(snp_stats[0, 0]):
+                        continue
+
+                    beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
+
+                    row = list(info)
+                    for b, s in zip(beta, se):
+                        row.extend([f'{b:.6g}', f'{s:.6g}'])
+                    f_tsv.write('\t'.join(map(str, row)) + '\n')
+
+                    cov_upper = Sigma[np.triu_indices(T)]
+                    f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+
+                    if args.output_rtau:
+                        all_betas.append(beta)
+            total_write += time.perf_counter() - t_write
             
             total_snps += idx_in_batch
     
@@ -401,22 +575,28 @@ def main():
         os.unlink(temp_bgen)
     
     # Output R_tau if requested
-    if args.output_rtau and all_betas:
-        log_mem("Computing R_tau correlation matrix...")
-        beta_mat = np.array(all_betas)
-        R_tau = np.corrcoef(beta_mat.T)
-        
-        rtau_file = f"{args.out}.Rtau.tsv"
-        with open(rtau_file, 'w') as f:
-            # Header
-            f.write('\t'.join([f'tau_{t:.2f}' for t in taus]) + '\n')
-            for row in R_tau:
-                f.write('\t'.join([f'{v:.6f}' for v in row]) + '\n')
-        logger.info(f"Wrote R_tau: {rtau_file}")
+    if args.output_rtau:
+        for prefix, all_betas in zip(out_prefixes, all_betas_list):
+            if not all_betas:
+                continue
+            log_mem(f"Computing R_tau correlation matrix for {prefix}...")
+            beta_mat = np.array(all_betas)
+            R_tau = np.corrcoef(beta_mat.T)
+
+            rtau_file = f"{prefix}.Rtau.tsv"
+            with open(rtau_file, 'w') as f:
+                f.write('\t'.join([f'tau_{t:.2f}' for t in taus]) + '\n')
+                for row in R_tau:
+                    f.write('\t'.join([f'{v:.6f}' for v in row]) + '\n')
+            logger.info(f"Wrote R_tau: {rtau_file}")
     
     elapsed = time.time() - t_start
+    log_mem(
+        f"Batch compute time: {total_compute:.1f}s, write time: {total_write:.1f}s, "
+        f"batch total: {time.perf_counter() - t_batches:.1f}s"
+    )
     log_mem(f"Done! {total_snps} SNPs in {elapsed:.1f}s ({total_snps/elapsed:.1f} SNPs/s)")
-    logger.info(f"Output: {out_tsv}, {out_cov}")
+    logger.info(f"Output: {', '.join(out_tsv_list)}")
 
 
 if __name__ == "__main__":

@@ -85,8 +85,7 @@ quantile_gwas <- function(
     }
 
   } else if (covar_mode == "include") {
-    print("Currently covar_mode = 'include' is still in development")
-    break
+    stop("covar_mode = 'include' is still in development")
 
     # Joint regression RIF ~ SNP + C
     if (is.null(C)) stop("Must provide C if covar_mode = 'include'.")

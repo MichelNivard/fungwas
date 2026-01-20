@@ -38,6 +38,19 @@ Low-level function working on in-memory objects (useful for simulations).
 stage2_fit <- param_gwas(stage1_object, transform = "custom_W", transform_args = list(W=W))
 ```
 
+### `param_gwas_multi()` (model tournament)
+Fit multiple models in one pass and return per-SNP AIC/BIC for model selection.
+
+```r
+W_list <- list(
+  add = matrix(1, nrow = length(taus), ncol = 1),
+  add_mult = cbind(1, seq(-1, 1, length.out = length(taus)))
+)
+
+model_scores <- param_gwas_multi(stage1_object, W_list, N = 20000)
+head(model_scores)
+```
+
 ### Weight Builders
 Functions to generate the `W` matrix ($K \times T$) mapping $T$ quantiles to $K$ parameters.
 

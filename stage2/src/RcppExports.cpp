@@ -26,8 +26,25 @@ BEGIN_RCPP
 END_RCPP
 }
 
+// fit_multi_models
+NumericMatrix fit_multi_models(const arma::mat& beta_stage1, const arma::mat& se_stage1, const List& W_list, double N, int n_threads);
+RcppExport SEXP _fungwasStage2_fit_multi_models(SEXP beta_stage1SEXP, SEXP se_stage1SEXP, SEXP W_listSEXP, SEXP NSEXP, SEXP n_threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type beta_stage1(beta_stage1SEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type se_stage1(se_stage1SEXP);
+    Rcpp::traits::input_parameter< const List& >::type W_list(W_listSEXP);
+    Rcpp::traits::input_parameter< double >::type N(NSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(fit_multi_models(beta_stage1, se_stage1, W_list, N, n_threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+
 static const R_CallMethodDef CallEntries[] = {
     {"_fungwasStage2_compute_calibrated_se", (DL_FUNC) &_fungwasStage2_compute_calibrated_se, 4},
+    {"_fungwasStage2_fit_multi_models", (DL_FUNC) &_fungwasStage2_fit_multi_models, 5},
     {NULL, NULL, 0}
 };
 

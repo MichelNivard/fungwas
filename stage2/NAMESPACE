@@ -8,6 +8,7 @@ export(make_weights_vqtl)
 export(prepare_regenie)
 export(param_gwas)
 export(param_gwas_from_file)
+export(param_gwas_multi)
 export(quantile_gwas)
 
 # C++ exports

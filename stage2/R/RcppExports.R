@@ -11,3 +11,7 @@
 compute_calibrated_se <- function(cov_vec, offsets, A, K) {
     .Call(`_fungwasStage2_compute_calibrated_se`, cov_vec, offsets, A, K)
 }
+
+fit_multi_models <- function(beta_stage1, se_stage1, W_list, N, n_threads = 1L) {
+    .Call(`_fungwasStage2_fit_multi_models`, beta_stage1, se_stage1, W_list, N, n_threads)
+}
