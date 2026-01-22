@@ -40,17 +40,13 @@ NumericMatrix compute_calibrated_se(NumericVector cov_vec, NumericVector offsets
        continue;
     }
     
-    // Fill Sigma upper triangle
-    // R stores matrices in column-major order.
-    // upper.tri(diag=TRUE) extraction follows this order:
-    // Col 0: (0,0)
-    // Col 1: (0,1), (1,1)
-    // Col 2: (0,2), (1,2), (2,2)
-    // ...
-    
+    // Fill Sigma upper triangle (row-major order)
+    // numpy: Sigma[np.triu_indices(K)] yields row-major order:
+    // Row 0: (0,0),(0,1),(0,2),...
+    // Row 1: (1,1),(1,2),...
     int idx = 0;
-    for (int c = 0; c < K; c++) {
-      for (int r = 0; r <= c; r++) {
+    for (int r = 0; r < K; r++) {
+      for (int c = r; c < K; c++) {
         Sigma(r, c) = cov_vec[start_idx + idx];
         idx++;
       }
