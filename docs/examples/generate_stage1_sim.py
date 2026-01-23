@@ -88,7 +88,7 @@ def write_stage1_outputs(
     out_tsv = out_prefix.with_suffix(".stage1.tsv.gz")
     out_cov = out_prefix.with_suffix(".cov.gz")
 
-    columns = ["snp_id", "chr", "bp", "a1", "a2"]
+    columns = ["snp_id", "chr", "bp", "effect_allele", "other_allele"]
     for tau in taus:
         columns.append(f"beta_tau_{tau:.2f}")
         columns.append(f"se_tau_{tau:.2f}")

@@ -464,7 +464,7 @@ def main():
     out_cov_list = [f"{prefix}.cov.gz" for prefix in out_prefixes]
     
     # Column headers
-    cols = ['snp_id', 'chr', 'bp', 'a1', 'a2']
+    cols = ['snp_id', 'chr', 'bp', 'effect_allele', 'other_allele']
     for t in taus:
         cols.extend([f'beta_tau_{t:.2f}', f'se_tau_{t:.2f}'])
     
@@ -476,6 +476,7 @@ def main():
     
     # Process in batches
     total_snps = 0
+    skipped_non_biallelic = 0
     G_batch = np.zeros((N_matched, args.batch_size), dtype=np.float64, order='F')
     batch_info = []
     
@@ -493,11 +494,15 @@ def main():
         idx_in_batch = 0
         
         for variant in bfile:
-            # Extract dosages
+            if len(variant.alleles) != 2:
+                skipped_non_biallelic += 1
+                continue
+
+            # Use effect allele dosage (allele1) to align with downstream GWAS.
             probs = variant.probabilities
-            dosages = probs[bgen_indices, 1] + 2 * probs[bgen_indices, 2]
+            dosages = 2 * probs[bgen_indices, 0] + probs[bgen_indices, 1]
             G_batch[:, idx_in_batch] = dosages
-            
+
             batch_info.append((
                 variant.rsid, variant.chrom, variant.pos,
                 variant.alleles[0], variant.alleles[1]
@@ -623,6 +628,7 @@ def main():
         f"Batch compute time: {total_compute:.1f}s, write time: {total_write:.1f}s, "
         f"batch total: {time.perf_counter() - t_batches:.1f}s"
     )
+    log_mem(f"Dropped {skipped_non_biallelic} non-biallelic variants")
     log_mem(f"Done! {total_snps} SNPs in {elapsed:.1f}s ({total_snps/elapsed:.1f} SNPs/s)")
     logger.info(f"Output: {', '.join(out_tsv_list)}")
 

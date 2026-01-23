@@ -387,7 +387,7 @@ param_gwas_from_file <- function(
   )
   
   # Build output data.table
-  out_dt <- stage1_dt[, c("snp_id", "chr", "bp", "a1", "a2"), with = FALSE]
+  out_dt <- stage1_dt[, c("snp_id", "chr", "bp", "effect_allele", "other_allele"), with = FALSE]
   
   # Add parameters and SEs
   for (i in seq_len(nrow(result$params))) {

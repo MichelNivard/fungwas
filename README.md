@@ -97,6 +97,10 @@ files compatible with `param_gwas_from_file`.
 
 See [Phenotype Preparation Guide](docs/phenotype_preparation.md) for details.
 
+### Allele Handling
+- Stage 1 outputs `effect_allele`/`other_allele` and uses BGEN allele1 dosage as the effect allele.
+- Non-biallelic variants are dropped during Stage 1 and the CLI reports the count.
+
 ### Step 1: Run Quantile GWAS
 
 Use the `fungwas-stage1` CLI to run the genome-wide scan.

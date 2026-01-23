@@ -75,3 +75,57 @@ NumericMatrix compute_calibrated_se(NumericVector cov_vec, NumericVector offsets
   
   return out_se;
 }
+
+//' Compute parameter covariance upper triangles
+//'
+//' @param cov_vec Numeric vector containing concatenated upper triangles of covariance matrices.
+//' @param offsets Integer vector of byte offsets (0-based) into the original file (needs conversion to index).
+//' @param A The transformation matrix (n_params x K).
+//' @param K Dimension of the covariance matrix (e.g. 17).
+//' @return NumericMatrix of upper-triangle covariance (n_snps x n_cov_params).
+// [[Rcpp::export]]
+NumericMatrix compute_param_cov(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K) {
+  int n_snps = offsets.size();
+  int n_params = A.nrow();
+  int n_cov_elements = K * (K + 1) / 2;
+  int n_cov_params = n_params * (n_params + 1) / 2;
+
+  arma::mat A_mat(A.begin(), n_params, K, false);
+  arma::mat Sigma(K, K, arma::fill::zeros);
+  NumericMatrix out_cov(n_snps, n_cov_params);
+
+  for (int i = 0; i < n_snps; i++) {
+    double byte_offset = offsets[i];
+    long long start_idx = (long long)(byte_offset / 4);
+
+    if (start_idx < 0 || start_idx + n_cov_elements > cov_vec.size()) {
+      for (int p = 0; p < n_cov_params; p++) out_cov(i, p) = NA_REAL;
+      continue;
+    }
+
+    int idx = 0;
+    for (int r = 0; r < K; r++) {
+      for (int c = r; c < K; c++) {
+        Sigma(r, c) = cov_vec[start_idx + idx];
+        idx++;
+      }
+    }
+    for (int r = 0; r < K; r++) {
+      for (int c = r + 1; c < K; c++) {
+        Sigma(c, r) = Sigma(r, c);
+      }
+    }
+
+    arma::mat Vtheta = A_mat * Sigma * A_mat.t();
+
+    int out_idx = 0;
+    for (int r = 0; r < n_params; r++) {
+      for (int c = r; c < n_params; c++) {
+        out_cov(i, out_idx) = Vtheta(r, c);
+        out_idx++;
+      }
+    }
+  }
+
+  return out_cov;
+}
