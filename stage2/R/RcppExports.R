@@ -12,6 +12,18 @@ compute_calibrated_se <- function(cov_vec, offsets, A, K) {
     .Call(`_fungwasStage2_compute_calibrated_se`, cov_vec, offsets, A, K)
 }
 
+
+#' Compute parameter covariance upper triangles
+#'
+#' @param cov_vec Numeric vector containing concatenated upper triangles of covariance matrices.
+#' @param offsets Integer vector of byte offsets (0-based) into the original file (needs conversion to index).
+#' @param A The transformation matrix (n_params x K).
+#' @param K Dimension of the covariance matrix (e.g. 17).
+#' @return NumericMatrix of upper-triangle covariance (n_snps x n_cov_params).
+compute_param_cov <- function(cov_vec, offsets, A, K) {
+    .Call(`_fungwasStage2_compute_param_cov`, cov_vec, offsets, A, K)
+}
+
 fit_multi_models <- function(beta_stage1, se_stage1, W_list, N, n_threads = 1L) {
     .Call(`_fungwasStage2_fit_multi_models`, beta_stage1, se_stage1, W_list, N, n_threads)
 }

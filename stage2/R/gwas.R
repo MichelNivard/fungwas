@@ -149,6 +149,9 @@ quantile_gwas <- function(
 #' @param cov_data For \code{se_mode = "tau_cov"}: either a list with \code{cov_vec} 
 #'   (numeric vector of covariance data) and \code{offsets} (byte offsets per SNP),
 #'   or NULL to use diagonal fallback.
+#' @param return_cov Optional output of parameter covariance derived from Stage 1
+#'   tau covariance. One of \code{"none"} (default), \code{"upper"} (upper-triangle
+#'   matrix), \code{"full"} (K x K x P array), or \code{"mashr"} (Bhat/Shat/V list).
 #'
 #' @return A list with the following elements:
 #' \item{\code{W}}{Weight matrix used in the parametric mapping.}
@@ -165,10 +168,12 @@ param_gwas <- function(
   transform_args = list(),
   se_mode = c("diagonal", "plugin_cor", "dwls", "tau_cov"),
   plugin_R = NULL,
-  cov_data = NULL
+  cov_data = NULL,
+  return_cov = c("none", "upper", "full", "mashr")
 ) {
   transform <- match.arg(transform)
   se_mode   <- match.arg(se_mode)
+  return_cov <- match.arg(return_cov)
 
   taus    <- stage1$taus
   q_tau   <- stage1$q_tau
@@ -286,6 +291,34 @@ if (se_mode == "diagonal") {
   }
 }
 
+  param_cov_upper <- NULL
+  param_cov_full <- NULL
+  mashr_inputs <- NULL
+  if (return_cov != "none") {
+    if (se_mode != "tau_cov" || is.null(cov_data)) {
+      warning("return_cov requires se_mode = 'tau_cov' with cov_data; returning NULL")
+    } else {
+      param_cov_upper <- compute_param_cov(
+        cov_vec = cov_data$cov_vec,
+        offsets = cov_data$offsets,
+        A = A,
+        K = Tt
+      )
+      if (!is.null(colnames(W))) {
+        colnames(param_cov_upper) <- .param_cov_upper_names(colnames(W))
+      }
+      rownames(param_cov_upper) <- colnames(Q_slope)
+      if (return_cov == "full") {
+        param_cov_full <- .param_cov_upper_to_array(
+          param_cov_upper,
+          K = nrow(params),
+          param_names = colnames(W)
+        )
+      } else if (return_cov == "mashr") {
+        mashr_inputs <- mashr_inputs_from_cov(params, param_cov_upper, mode = "array")
+      }
+    }
+  }
 
   out <- list(
     W         = W,
@@ -295,6 +328,9 @@ if (se_mode == "diagonal") {
     Q         = Q_stat,
     df        = Tt - K
   )
+  if (return_cov == "upper") out$param_cov_upper <- param_cov_upper
+  if (return_cov == "full") out$param_cov <- param_cov_full
+  if (return_cov == "mashr") out$mashr <- mashr_inputs
   if (se_mode == "plugin_cor") out$R_tau <- R_tau
   out
 }
@@ -310,6 +346,11 @@ if (se_mode == "diagonal") {
 #' @param se_mode SE computation mode (see \code{param_gwas})
 #' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode
 #' @param rtau_file Path to R_tau correlation matrix (.Rtau.tsv) for plugin_cor mode
+#' @param return_cov Optional output of parameter covariance derived from Stage 1
+#'   tau covariance. One of \code{"none"} (default), \code{"upper"}, \code{"full"},
+#'   or \code{"mashr"}.
+#' @param param_cov_file Optional output file for parameter covariance upper triangles
+#'   (binary float32, same layout as Stage 1 .cov.gz).
 #'
 #' @return A data.table with SNP info and parameter estimates
 #' 
@@ -319,9 +360,12 @@ param_gwas_from_file <- function(
   W,
   se_mode = c("diagonal", "plugin_cor", "dwls", "tau_cov"),
   cov_file = NULL,
-  rtau_file = NULL
+  rtau_file = NULL,
+  return_cov = c("none", "upper", "full", "mashr"),
+  param_cov_file = NULL
 ) {
   se_mode <- match.arg(se_mode)
+  return_cov <- match.arg(return_cov)
   
   if (!requireNamespace("data.table", quietly = TRUE)) {
     stop("data.table package required for param_gwas_from_file")
@@ -383,7 +427,8 @@ param_gwas_from_file <- function(
     transform_args = list(W = W),
     se_mode = se_mode,
     plugin_R = plugin_R,
-    cov_data = cov_data
+    cov_data = cov_data,
+    return_cov = return_cov
   )
   
   # Build output data.table
@@ -398,6 +443,13 @@ param_gwas_from_file <- function(
   
   out_dt$Q <- result$Q
   out_dt$Q_pval <- stats::pchisq(result$Q, df = result$df, lower.tail = FALSE)
-  
-  out_dt
+
+  if (!is.null(param_cov_file) && !is.null(result$param_cov_upper)) {
+    .write_param_cov_upper(result$param_cov_upper, param_cov_file)
+  }
+
+  if (return_cov == "none" && is.null(param_cov_file)) {
+    return(out_dt)
+  }
+  list(results = out_dt, param_cov_upper = result$param_cov_upper, param_cov = result$param_cov, mashr = result$mashr)
 }

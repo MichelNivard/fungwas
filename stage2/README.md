@@ -24,11 +24,45 @@ Streamlined wrapper to run Stage 2 directly from Stage 1 output files.
 
 ```r
 results <- param_gwas_from_file(
-  stage1_results = "path/to/stage1.tsv.gz",
+  stage1_file = "path/to/stage1.tsv.gz",
   W = my_weight_matrix,
   se_mode = "tau_cov",
   cov_file = "path/to/stage1.cov.gz"
 )
+```
+
+### Parameter covariance (generic, any model)
+If you run with `se_mode = "tau_cov"`, Stage 2 can emit per-SNP covariance of the
+mapped parameters (for mashr or other downstream tools).
+
+```r
+out <- param_gwas_from_file(
+  stage1_file = "path/to/stage1.tsv.gz",
+  W = my_weight_matrix,
+  se_mode = "tau_cov",
+  cov_file = "path/to/stage1.cov.gz",
+  return_cov = "upper",
+  param_cov_file = "stage2.paramcov.gz"
+)
+
+# Upper-triangle covariance per SNP (P x K*(K+1)/2)
+param_cov_upper <- out$param_cov_upper
+```
+
+For mashr-style inputs:
+
+```r
+fit <- param_gwas(
+  stage1_object,
+  transform = "custom_W",
+  transform_args = list(W = my_weight_matrix),
+  se_mode = "tau_cov",
+  cov_data = my_cov_data,
+  return_cov = "mashr"
+)
+
+mashr_inputs <- fit$mashr
+# mashr_inputs$Bhat  (P x K), mashr_inputs$Shat (P x K), mashr_inputs$V (K x K x P)
 ```
 
 ### `param_gwas()`

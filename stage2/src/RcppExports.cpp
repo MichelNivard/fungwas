@@ -13,6 +13,9 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 
 // compute_calibrated_se
 NumericMatrix compute_calibrated_se(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
+
+// compute_param_cov
+NumericMatrix compute_param_cov(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
 RcppExport SEXP _fungwasStage2_compute_calibrated_se(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
@@ -22,6 +25,20 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< NumericMatrix >::type A(ASEXP);
     Rcpp::traits::input_parameter< int >::type K(KSEXP);
     rcpp_result_gen = Rcpp::wrap(compute_calibrated_se(cov_vec, offsets, A, K));
+    return rcpp_result_gen;
+END_RCPP
+}
+
+// compute_param_cov
+RcppExport SEXP _fungwasStage2_compute_param_cov(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type cov_vec(cov_vecSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type offsets(offsetsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type A(ASEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_param_cov(cov_vec, offsets, A, K));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -44,6 +61,7 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_fungwasStage2_compute_calibrated_se", (DL_FUNC) &_fungwasStage2_compute_calibrated_se, 4},
+    {"_fungwasStage2_compute_param_cov", (DL_FUNC) &_fungwasStage2_compute_param_cov, 4},
     {"_fungwasStage2_fit_multi_models", (DL_FUNC) &_fungwasStage2_fit_multi_models, 5},
     {NULL, NULL, 0}
 };
