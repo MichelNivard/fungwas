@@ -13,6 +13,7 @@ suppressPackageStartupMessages({
   library(Matrix)
 })
 
+options(run_identifiability_examples = FALSE)
 source("stage2/diagnose_identifiability.R")
 
 read_weight <- function(path) {

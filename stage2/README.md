@@ -189,11 +189,21 @@ If results look underpowered or unstable, run the identifiability diagnostics on
 Rscript stage2/diagnose_identifiability.R
 ```
 
+Quick wrapper (no examples, optional empirical covariance):
+
+```bash
+stage2/diagnose_weights.sh path/to/weights.rds [stage1.tsv.gz] [cov.gz]
+```
+
 To explore the effect of different tau grids (optional, advanced):
 
 ```bash
 Rscript stage2/diagnose_tau_grid.R --weights path/to/weights.rds
 ```
+
+Notes:
+- If you provide `stage1.tsv.gz` and `cov.gz`, the diagnostics use **empirical** tau covariance (recommended).
+- If not provided, diagnostics use **theoretical** (normal) tau covariance.
 
 ## REGENIE inputs (fast Stage 1)
 
