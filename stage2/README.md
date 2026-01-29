@@ -55,7 +55,7 @@ You then use these outputs (or other model-derived quantities) to build your **w
 
 **Important:** **Mean-center non-intercept columns of `W` (e.g., multiplicative/variance columns)** to reduce collinearity with the intercept and avoid power loss. This is a re-parameterization (it does not change the model fit), but it can dramatically improve identifiability.
 
-### Step 2: Understanding the “Cutoff” (Alfred’s Question)
+### Step 2: Understanding the “Cutoff”
 In a mixture model, there is **no hard cutoff**. The relevant quantity is the **posterior probability** (the weight) computed in Step 1. FungWAS is designed to use these **continuous weights** rather than a hard dichotomy.
 
 If a binary cutoff is required for interpretation, the natural threshold is the point where:

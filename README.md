@@ -12,6 +12,8 @@ A production-ready framework for performing Genome-Wide Association Studies (GWA
 
 FungWas operates in two stages:
 
+See [Stage 2 Documentation](stage2/README.md) for full details.
+
 1.  **Stage 1 (Python/C++):**
     -   Performs **Recentered Influence Function (RIF) regression** on the phenotype at multiple quantile levels (taus).
     -   This is a highly optimized, parallelized quantile GWAS.
@@ -151,6 +153,8 @@ resulting per-tau betas/SEs can be combined for Stage 2 mapping using
 ### Step 2: Parametric Mapping
 
 In R, load the results and map them to your model of interest.
+
+See [Stage 2 Documentation](stage2/README.md) for full details.
 
 ```r
 library(fungwasStage2)
