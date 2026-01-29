@@ -1,6 +1,8 @@
 # FungWas Stage 2: Parametric Mapping (R Package)
 
-This R package implements "Stage 2" of the FungWas framework: mapping quantile GWAS results (from Stage 1) to parameters of a structural model (like a mixture model or variance-heterogeneity model).
+This R package implements "Stage 2" of the FungWas framework: mapping quantile GWAS results (from Stage 1) to parameters of a user-chosen structural model.
+
+**Core idea:** FungWAS is a general framework for Quantile GWAS. You fit **your** null phenotype model externally (normal, mixture, skewed, etc.), then pass the resulting parameters (e.g., posterior weights, residuals, or model-derived weights `W`) into Stage 2. Mixture models are a common use case (e.g., Alfred's serology data), but they are **not** required.
 
 ## Key Features
 -   **Flexible Mapping:** Map quantile effects to ANY parametric model where you can derive $dQ(\tau) / d\theta$.
@@ -15,6 +17,73 @@ This R package implements "Stage 2" of the FungWas framework: mapping quantile G
 ```r
 devtools::install(".")
 library(fungwasStage2)
+```
+
+## Workflow: From Raw Data to GWAS
+
+### Step 0: The Research Question
+Examples of **why** you would use Quantile GWAS:
+
+- **Example A (Standard Model):** "Does a SNP affect the variance of BMI?"
+- **Example B (Mixture Model):** "Does a SNP affect the risk of being seropositive in a continuous antibody distribution?"
+
+### Step 1: Fit Your Model (External to FungWAS)
+You must first fit your **null phenotype model** in R/Python. The goal is to extract the inputs your model implies, such as **posterior weights** (for mixture models) and **residuals** (for normal or generalized models).
+
+**Example A: Normal model (single-component)**
+```r
+fit <- lm(y ~ age + sex + batch, data = pheno)
+resid <- resid(fit)
+# Single-component model has no mixing: weights are all 1.
+weights <- rep(1, length(resid))
+```
+
+**Example B: Two-component mixture model (mixtools)**
+```r
+library(mixtools)
+
+mix <- normalmixEM(y, k = 2)
+posterior <- mix$posterior
+# Posterior probability of component 1 for each sample
+weights <- posterior[, 1]
+# Model-implied mean for each sample
+mu_hat <- posterior[, 1] * mix$mu[1] + posterior[, 2] * mix$mu[2]
+resid <- y - mu_hat
+```
+
+You then use these outputs (or other model-derived quantities) to build your **weight matrix** `W` for Stage 2. See `make_weights_*` helpers for common cases, or use `make_weights_generic(...)` for custom models.
+
+### Step 2: Understanding the “Cutoff” (Alfred’s Question)
+In a mixture model, there is **no hard cutoff**. The relevant quantity is the **posterior probability** (the weight) computed in Step 1. FungWAS is designed to use these **continuous weights** rather than a hard dichotomy.
+
+If a binary cutoff is required for interpretation, the natural threshold is the point where:
+
+$$P(\text{Class A}) = P(\text{Class B})$$
+
+But for analysis, fungwas prefers the continuous posterior probabilities.
+
+### Step 3: Run Stage 1 & Stage 2
+**Stage 1 (Quantile GWAS):**
+```bash
+fungwas-stage1 \
+  --bgen data.bgen \
+  --pheno pheno.txt \
+  --pheno-col phenotype \
+  --covar covar.txt \
+  --covar-col age sex batch \
+  --out results/chr22
+```
+
+**Stage 2 (Parametric mapping):**
+```r
+W <- make_weights_vqtl(taus, q_tau, mu = mean(y), sd = sd(y))
+
+results <- param_gwas_from_file(
+  stage1_file = "results/chr22.stage1.tsv.gz",
+  W = W,
+  se_mode = "tau_cov",
+  cov_file = "results/chr22.cov.gz"
+)
 ```
 
 ## Core Functions
@@ -91,6 +160,17 @@ Functions to generate the `W` matrix ($K \times T$) mapping $T$ quantiles to $K$
 -   `make_weights_vqtl(taus, q_tau, mu, sd)`
 -   `make_weights_normal_mixture(taus, q_tau, p1, mu1, sd1, ...)`
 -   `make_weights_generic(...)`
+
+## Outputs and Definitions
+
+The Stage 2 output includes per-SNP parameter estimates and diagnostics. For score/LRT-style inference, the key statistics are:
+
+- **beta_mu:** Estimated effect of the SNP on the mean of the target distribution parameterization.
+- **beta_mu_se:** Standard error of `beta_mu`.
+- **beta_sigma2:** Estimated effect of the SNP on the log-variance (variance parameter) of the target distribution.
+- **beta_sigma2_se:** Standard error of `beta_sigma2`.
+- **Q:** Heterogeneity (misfit) statistic, computed as a quadratic form of residual quantile slopes, testing whether the SNP affects *any* parameters of the chosen model. Under standard large-sample assumptions this is approximately $\chi^2_{df}$ with $df = T - K$.
+- **Q_pval:** P-value for the Q statistic under the $\chi^2$ reference distribution.
 
 ## Testing
 Proof / Validation scripts are located in `tests/`. These are standalone R scripts verifying parameter recovery on simulated data.

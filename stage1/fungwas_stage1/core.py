@@ -23,6 +23,30 @@ except ImportError:
     logger.warning("C++ extension not found, using numpy fallback (slower)")
 
 
+def resolve_covar_cols(requested: Optional[list[str]], available: list[str]) -> list[str]:
+    """
+    Resolve requested covariate columns against available columns.
+
+    Parameters
+    ----------
+    requested : list of str or None
+        Covariate columns requested by the user.
+    available : list of str
+        Available covariate columns in the file (excluding FID/IID).
+
+    Returns
+    -------
+    list of str
+        Columns to use as covariates.
+    """
+    if requested is None:
+        return available
+    missing = [c for c in requested if c not in available]
+    if missing:
+        raise ValueError(f"Covariate column(s) not found: {missing}. Available: {available}")
+    return requested
+
+
 def compute_rif(Y: np.ndarray, taus: np.ndarray, 
                 density_floor: float = 1e-8) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """

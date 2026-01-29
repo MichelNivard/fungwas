@@ -34,6 +34,7 @@ from .core import (
     compute_block_scores,
     compute_block_scores_multi,
     compute_covariance_from_blocks,
+    resolve_covar_cols,
 )
 
 logging.basicConfig(
@@ -92,8 +93,18 @@ def read_table_whitespace(file_path: str) -> list[dict]:
     return rows
 
 
-def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str], 
-                    taus: np.ndarray, keep_file: Optional[str] = None) -> tuple:
+def parse_list_arg(values: Optional[list[str]]) -> Optional[list[str]]:
+    if values is None:
+        return None
+    parts = []
+    for v in values:
+        parts.extend([p.strip() for p in v.split(',') if p.strip()])
+    return parts or None
+
+
+def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
+                    taus: np.ndarray, keep_file: Optional[str] = None,
+                    covar_cols: Optional[list[str]] = None) -> tuple:
     """
     Load raw phenotype and covariates, compute RIF, and residualize.
     
@@ -147,7 +158,10 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
         log_mem(f"Loading covariates from {covar_file}")
         covar_data = read_table_whitespace(covar_file)
         covar_map = {r['FID']: r for r in covar_data}
-        covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
+        available_covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
+        covar_cols = resolve_covar_cols(covar_cols, available_covar_cols)
+    elif covar_cols is not None:
+        raise ValueError("covar_cols provided but no covariate file (--covar) was supplied.")
     else:
         covar_map = {}
         covar_cols = []
@@ -208,7 +222,8 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
 
 
 def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Optional[str],
-                          taus: np.ndarray, keep_file: Optional[str] = None) -> tuple:
+                          taus: np.ndarray, keep_file: Optional[str] = None,
+                          covar_cols: Optional[list[str]] = None) -> tuple:
     """
     Load multiple phenotypes and compute residualized RIF matrices.
     """
@@ -236,7 +251,10 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
         log_mem(f"Loading covariates from {covar_file}")
         covar_data = read_table_whitespace(covar_file)
         covar_map = {r['FID']: r for r in covar_data}
-        covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
+        available_covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
+        covar_cols = resolve_covar_cols(covar_cols, available_covar_cols)
+    elif covar_cols is not None:
+        raise ValueError("covar_cols provided but no covariate file (--covar) was supplied.")
     else:
         covar_map = {}
         covar_cols = []
@@ -346,6 +364,9 @@ def main():
                         help='Path to sample file (if not embedded in BGEN)')
     parser.add_argument('--covar', default=None,
                         help='Path to covariate file')
+    parser.add_argument('--covar-col', dest='covar_cols', nargs='+', default=None,
+                        help='Covariate column(s) to use (space or comma-separated). '
+                             'If omitted, all non-ID columns in the covariate file are used.')
     parser.add_argument('--snps', default=None,
                         help='File with SNP IDs to process (one per line)')
     parser.add_argument('--keep', default=None,
@@ -390,6 +411,7 @@ def main():
         pheno_cols = [c.strip() for c in args.pheno_cols.split(',') if c.strip()]
     else:
         pheno_cols = [args.pheno_col]
+    covar_cols = parse_list_arg(args.covar_cols)
 
     use_multi = len(pheno_cols) > 1
     if not use_multi and args.pheno_cols:
@@ -397,14 +419,16 @@ def main():
 
     if not use_multi:
         sample_ids, RIF_resid, Q, q_tau = load_phenotypes(
-            args.pheno, pheno_cols[0], args.covar, taus, keep_file=args.keep
+            args.pheno, pheno_cols[0], args.covar, taus, keep_file=args.keep,
+            covar_cols=covar_cols
         )
         RIF_resid_list = [RIF_resid]
         q_tau_list = [q_tau]
     else:
         log_mem(f"Loading {len(pheno_cols)} phenotypes in one pass...")
         sample_ids, RIF_resid_list, Q, q_tau_list = load_phenotypes_multi(
-            args.pheno, pheno_cols, args.covar, taus, keep_file=args.keep
+            args.pheno, pheno_cols, args.covar, taus, keep_file=args.keep,
+            covar_cols=covar_cols
         )
     log_mem(f"Phenotype load time: {time.perf_counter() - t_load:.2f}s")
     N = len(sample_ids)
