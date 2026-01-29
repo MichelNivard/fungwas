@@ -53,6 +53,8 @@ resid <- y - mu_hat
 
 You then use these outputs (or other model-derived quantities) to build your **weight matrix** `W` for Stage 2. See `make_weights_*` helpers for common cases, or use `make_weights_generic(...)` for custom models.
 
+**Important:** **Mean-center non-intercept columns of `W` (e.g., multiplicative/variance columns)** to reduce collinearity with the intercept and avoid power loss. This is a re-parameterization (it does not change the model fit), but it can dramatically improve identifiability.
+
 ### Step 2: Understanding the “Cutoff” (Alfred’s Question)
 In a mixture model, there is **no hard cutoff**. The relevant quantity is the **posterior probability** (the weight) computed in Step 1. FungWAS is designed to use these **continuous weights** rather than a hard dichotomy.
 
@@ -178,6 +180,19 @@ Proof / Validation scripts are located in `tests/`. These are standalone R scrip
 ```bash
 cd tests
 Rscript test-vQTL.R
+```
+
+## Debugging Weight Matrices
+If results look underpowered or unstable, run the identifiability diagnostics on your `W` matrix:
+
+```bash
+Rscript stage2/diagnose_identifiability.R
+```
+
+To explore the effect of different tau grids (optional, advanced):
+
+```bash
+Rscript stage2/diagnose_tau_grid.R --weights path/to/weights.rds
 ```
 
 ## REGENIE inputs (fast Stage 1)
