@@ -199,7 +199,9 @@ def compute_block_scores_multi(G: np.ndarray, RIF_resid_list: list[np.ndarray], 
     if not isinstance(RIF_resid_list, (list, tuple)):
         raise ValueError("RIF_resid_list must be a list of arrays")
 
-    if HAVE_CPP and hasattr(cpp_ext, "stage1_block_scores_multi"):
+    if HAVE_CPP and hasattr(cpp_ext, 'stage1_block_scores_multi'):
+        # Use optimized C++ multi-phenotype function
+        # Processes all phenotypes in one pass over G for cache efficiency
         return cpp_ext.stage1_block_scores_multi(
             np.asfortranarray(G, dtype=np.float64),
             [np.asfortranarray(rif, dtype=np.float64) for rif in RIF_resid_list],
