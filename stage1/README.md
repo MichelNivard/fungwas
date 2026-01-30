@@ -4,14 +4,26 @@ Python/C++ implementation for blazing-fast RIF quantile regression with jackknif
 
 ## Installation
 
+### Prerequisites
+
+Stage 1 requires a **C++ extension** for fast jackknife covariance computation. Without it, the numpy fallback is ~100x slower for large datasets.
+
 ```bash
 # With conda (recommended)
 conda env create -f environment.yml
 conda activate fungwas-stage1
-pip install .
 
-# Or pip only
-pip install .
+# Build C++ extension (REQUIRED for performance)
+python setup.py build_ext --inplace
+
+# Install package
+pip install -e .
+```
+
+**Important:** If you see `C++ extension not found, using numpy fallback (slower)` when running, the C++ extension is not built. Build it with:
+```bash
+cd stage1
+python setup.py build_ext --inplace
 ```
 
 ### Conda environment notes (BGEN support)
