@@ -14,14 +14,11 @@ Outputs:
 """
 
 import argparse
-import atexit
 import gzip
 import logging
 import os
 import struct
-import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Optional, List
@@ -57,22 +54,6 @@ def get_memory_mb() -> float:
 def log_mem(msg: str):
     """Log message with memory usage."""
     logger.info(f"[MEM {get_memory_mb():.0f}MB] {msg}")
-
-
-def register_temp_bgen_cleanup(path: Optional[str]):
-    if not path:
-        return
-
-    def _cleanup():
-        try:
-            os.unlink(path)
-            logger.info(f"Removed temporary BGEN: {path}")
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            logger.warning(f"Failed to remove temporary BGEN {path}: {exc}")
-
-    atexit.register(_cleanup)
 
 
 def read_table_whitespace(file_path: str) -> list[dict]:
@@ -118,30 +99,6 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
                     covar_cols: Optional[list[str]] = None) -> tuple:
     """
     Load raw phenotype and covariates, compute RIF, and residualize.
-    
-    Parameters
-    ----------
-    pheno_file : str
-        Path to phenotype file (space-delimited with FID, IID, and phenotype column)
-    pheno_col : str
-        Name of the phenotype column to analyze
-    covar_file : str, optional
-        Path to covariate file
-    taus : array
-        Quantile levels for RIF computation
-    keep_file : str, optional
-        File with sample IDs to keep (one per line, FID or FID\tIID format)
-        
-    Returns
-    -------
-    sample_ids : list
-        FIDs of included samples
-    RIF_resid : array (N, T)
-        Residualized RIF matrix
-    Q : array (N, K)
-        Covariate QR basis  
-    q_tau : array (T,)
-        Empirical quantiles
     """
     # Load keep list if provided
     keep_set = None
@@ -152,7 +109,7 @@ def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
             for line in f:
                 parts = line.strip().split()
                 if parts:
-                    keep_set.add(parts[0])  # Use FID
+                    keep_set.add(parts[0])
         log_mem(f"Keeping {len(keep_set)} samples")
     
     log_mem(f"Loading phenotypes from {pheno_file}")
@@ -330,124 +287,65 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
     return sample_ids, RIF_resid_list, Q, q_tau_list
 
 
-def extract_snps_bgenix(bgen_path: str, snp_file: str, bgenix_path: str,
-                         out_dir: str) -> str:
-    """Extract SNPs using bgenix, return path to temp BGEN."""
-    temp_bgen = tempfile.NamedTemporaryFile(
-        suffix='.bgen', delete=False, dir=out_dir
-    ).name
-    
-    log_mem(f"Extracting SNPs with bgenix...")
-    cmd = [bgenix_path, '-g', bgen_path, '-incl-rsids', snp_file]
-    
-    with open(temp_bgen, 'wb') as f:
-        result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE)
-    
-    if result.returncode != 0:
-        os.unlink(temp_bgen)
-        raise RuntimeError(f"bgenix failed: {result.stderr.decode()}")
-    
-    return temp_bgen
-
-
 class VariantGenerator:
     """Generator that yields variants one at a time while keeping bfile handle alive."""
-    def __init__(self, bfile, mode, data):
+    def __init__(self, bfile, snp_set):
         self.bfile = bfile  # Keep handle alive!
-        self.mode = mode  # 'all', 'lookup', or 'filter'
-        self.data = data  # snp_list for lookup, snp_set for filter
+        self.snp_set = snp_set
         self.found = 0
+        self.target = len(snp_set)
         
     def __iter__(self):
-        if self.mode == 'all':
-            # Stream full BGEN
-            for var in self.bfile:
+        for var in self.bfile:
+            if var.rsid in self.snp_set:
+                self.found += 1
                 yield var
-        elif self.mode == 'lookup':
-            # Index lookup for each SNP
-            for rsid in self.data:
-                var_list = self.bfile.with_rsid(rsid)
-                if var_list:
-                    for var in var_list:
-                        self.found += 1
-                        yield var
-        elif self.mode == 'filter':
-            # Stream and filter
-            snp_set = self.data
-            target_count = len(snp_set)
-            for var in self.bfile:
-                if var.rsid in snp_set:
-                    self.found += 1
-                    yield var
-                    if self.found >= target_count:
-                        break
+                if self.found >= self.target:
+                    break
 
 
 def get_variants_bgen(bgen_path: str, sample_path: Optional[str], 
-                      snp_list: Optional[List[str]], use_bgenx: bool,
-                      bgenix_path: str, out_dir: str):
+                      snp_list: Optional[List[str]]):
     """
-    Get variants from BGEN file using either bgen (default) or bgenx (legacy).
+    Get variants from BGEN file using the bgen package.
+    
+    Uses delay_parsing=True for efficient streaming and pre-filters SNPs
+    using the BGEN index to avoid scanning variants not in the file.
     
     Returns
     -------
-    variants : iterable of variant objects (generator or bfile handle)
+    variants : iterable of variant objects
     samples : list of sample IDs
-    temp_bgen : path to temp file (if created), or None
-    bfile_handle : BgenReader or BgenFile handle (keep alive during iteration)
-    is_snp_subset : bool, True if returning filtered variants
+    bfile_handle : BgenReader handle (keep alive during iteration)
     """
-    temp_bgen = None
+    from bgen import BgenReader
     
-    if use_bgenx:
-        # Legacy mode: use bgenix to create temp file, then bgen-reader
-        log_mem("Using legacy bgenx mode (bgenix + bgen-reader)...")
-        if snp_list:
-            # Write SNP list to temp file for bgenix
-            snp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', 
-                                                    delete=False, dir=out_dir).name
-            with open(snp_file, 'w') as f:
-                for rsid in snp_list:
-                    f.write(rsid + '\n')
-            temp_bgen = extract_snps_bgenix(bgen_path, snp_file, bgenix_path, out_dir)
-            os.unlink(snp_file)
-            register_temp_bgen_cleanup(temp_bgen)
-            target_bgen = temp_bgen
-        else:
-            target_bgen = bgen_path
+    log_mem("Using bgen package with delay_parsing...")
+    bfile = BgenReader(bgen_path, sample_path=sample_path or '', delay_parsing=True)
+    
+    if snp_list:
+        log_mem(f"Fetching {len(snp_list)} specific SNPs using bgen...")
         
-        from bgen.reader import BgenFile
-        bfile = BgenFile(target_bgen)
-        return bfile, bfile.samples, temp_bgen, bfile, False
-    
+        # Pre-filter: intersect user SNPs with BGEN contents using index
+        log_mem("Reading BGEN index for variant list...")
+        bgen_rsids = set(bfile.rsids())
+        snp_set = set(snp_list)
+        valid_snps = snp_set & bgen_rsids
+        invalid_count = len(snp_set) - len(valid_snps)
+        
+        if invalid_count > 0:
+            log_mem(f"{invalid_count} requested SNPs not in BGEN, processing {len(valid_snps)}")
+        
+        if len(valid_snps) == 0:
+            logger.warning("No valid SNPs found in BGEN file!")
+        
+        # Use generator for memory-efficient streaming
+        gen = VariantGenerator(bfile, valid_snps)
+        return gen, bfile.samples, bfile
     else:
-        # Default mode: use bgen package directly
-        from bgen import BgenReader
-        
-        log_mem("Using bgen package (default mode)...")
-        bfile = BgenReader(bgen_path, sample_path=sample_path or '')
-        
-        if snp_list:
-            log_mem(f"Fetching {len(snp_list)} specific SNPs using bgen...")
-            # Choose strategy based on SNP list size
-            # - Small lists: use with_rsid (index lookups)
-            # - Large lists: stream and filter (single scan)
-            # Threshold ~1500: with_rsid cost = 1500 * 0.025s = 37.5s
-            #               streaming cost = ~34s (full chr22 scan)
-            snp_set = set(snp_list)
-            if len(snp_list) <= 1500:
-                # Use generator with index lookups (memory efficient)
-                log_mem(f"Using index lookup for {len(snp_list)} SNPs")
-                gen = VariantGenerator(bfile, 'lookup', snp_list)
-                return gen, bfile.samples, None, bfile, True
-            else:
-                # Stream and filter (faster for many SNPs)
-                log_mem(f"Using streaming filter for {len(snp_list)} SNPs")
-                gen = VariantGenerator(bfile, 'filter', snp_set)
-                return gen, bfile.samples, None, bfile, True
-        else:
-            # Return the whole file for iteration
-            return bfile, bfile.samples, None, bfile, False
+        # Return the whole file for iteration
+        log_mem("No SNP list provided; streaming full BGEN directly.")
+        return bfile, bfile.samples, bfile
 
 
 def match_samples(bgen_samples: list, sample_ids: list):
@@ -459,32 +357,22 @@ def match_samples(bgen_samples: list, sample_ids: list):
     return valid_mask, bgen_indices
 
 
-def extract_dosage(variant, bgen_indices: Optional[np.ndarray] = None, 
-                   use_bgenx: bool = False):
+def extract_dosage(variant, bgen_indices: Optional[np.ndarray] = None):
     """
     Extract dosage from variant.
     
     Parameters
     ----------
-    variant : variant object from bgen or bgen-reader
-    bgen_indices : indices to extract (for bgenx mode), or None for all samples
-    use_bgenx : whether using bgenx (bgen-reader) mode
+    variant : variant object from bgen
+    bgen_indices : indices to extract, or None for all samples
     
     Returns
     -------
     dosages : numpy array of dosages
     """
-    if use_bgenx:
-        # bgen-reader mode
-        probs = variant.probabilities
-        if bgen_indices is not None:
-            dosages = 2 * probs[bgen_indices, 0] + probs[bgen_indices, 1]
-        else:
-            dosages = 2 * probs[:, 0] + probs[:, 1]
-    else:
-        # bgen mode - minor_allele_dosage is already a 1D numpy array
-        dosages = variant.minor_allele_dosage
-    
+    dosages = variant.minor_allele_dosage
+    if bgen_indices is not None:
+        return dosages[bgen_indices]
     return dosages
 
 
@@ -535,12 +423,6 @@ def main():
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed for block assignment')
     
-    # BGEN loading options
-    parser.add_argument('--use-bgenx', dest='use_bgenx', action='store_true',
-                        help='Use legacy bgenx mode (bgenix + bgen-reader) instead of default bgen package')
-    parser.add_argument('--bgenix-path', dest='bgenix_path', default='bgenix',
-                        help='Path to bgenix binary (only used with --use-bgenx)')
-    
     # Output options
     parser.add_argument('--output-rtau', dest='output_rtau', action='store_true',
                         help='Also output R_tau correlation matrix for plugin_cor')
@@ -555,10 +437,6 @@ def main():
     T = len(taus)
     
     log_mem(f"Starting FungWas Stage 1 (taus={T}, blocks={args.blocks})")
-    if args.use_bgenx:
-        log_mem("Mode: LEGACY (bgenix + bgen-reader)")
-    else:
-        log_mem("Mode: DEFAULT (bgen package)")
     logger.info("Note: For Stage 2, consider mean-centering non-intercept columns of your W matrix to reduce collinearity.")
     t_start = time.time()
     t_load = time.perf_counter()
@@ -600,9 +478,8 @@ def main():
         log_mem(f"Loaded {len(snp_list)} SNPs from {args.snps}")
     
     # Open BGEN and get variants
-    variants, bgen_samples, temp_bgen, bfile_handle, is_snp_subset = get_variants_bgen(
-        args.bgen, args.sample, snp_list, args.use_bgenx, 
-        args.bgenix_path, out_dir
+    variants, bgen_samples, bfile_handle = get_variants_bgen(
+        args.bgen, args.sample, snp_list
     )
     
     # Match samples
@@ -670,12 +547,8 @@ def main():
                 continue
 
             # Extract dosage
-            if args.use_bgenx:
-                dosages = extract_dosage(variant, bgen_indices, use_bgenx=True)
-            else:
-                # bgen mode: get all dosages then index
-                all_dosages = extract_dosage(variant, use_bgenx=False)
-                dosages = all_dosages[bgen_indices]
+            all_dosages = extract_dosage(variant)
+            dosages = all_dosages[bgen_indices]
             
             G_batch[:, idx_in_batch] = dosages
 
@@ -778,10 +651,6 @@ def main():
             total_write += time.perf_counter() - t_write
             
             total_snps += idx_in_batch
-    
-    # Cleanup temp file
-    if temp_bgen:
-        os.unlink(temp_bgen)
     
     # Output R_tau if requested
     if args.output_rtau:

@@ -16,17 +16,11 @@ pip install .
 
 ### Conda environment notes (BGEN support)
 
-Stage 1 relies on the Python `bgen` module for BGEN streaming, so the conda
-environment installs it via pip (currently pinned to `bgen==1.9.7`). This avoids
-HPC module requirements and keeps the CLI self-contained.
+Stage 1 uses the Python `bgen` module for BGEN streaming, installed via pip (currently pinned to `bgen==1.9.7`). No external tools are required.
 
 ```bash
 conda env update -n fungwas-stage1 -f environment.yml
 ```
-
-**Note:** The default mode uses the `bgen` Python package directly for all
-BGEN operations. No external tools are required. If you need the legacy
-behavior using `bgenix` + `bgen-reader`, use the `--use-bgenx` flag.
 
 ## Usage
 
@@ -108,45 +102,27 @@ fungwas-stage1 \
 If `--pheno-cols` contains a single phenotype, Stage 1 automatically falls back
 to the single-phenotype kernel to avoid extra overhead.
 
-### BGEN loading modes
+### BGEN Loading Strategy
 
-Stage 1 supports two modes for loading BGEN files:
+Stage 1 uses an efficient hybrid approach for BGEN loading:
 
-**Default mode (`bgen` package):**
-- Uses the Python `bgen` package directly for all operations
-- When `--snps` is provided, uses `with_rsid()` to fetch specific variants
-  without creating temporary files
-- No external tools required
-- Generally faster for targeted SNP lists
+1. **Pre-filtering**: Uses the BGEN index (`bfile.rsids()`) to intersect the user's SNP list with variants actually in the BGEN file
+2. **delay_parsing**: Opens BGEN with `delay_parsing=True` to defer genotype decompression until needed
+3. **Streaming**: Iterates through the BGEN file, yielding only matching variants
+4. **Batching**: Processes variants in chunks (default 500) for memory efficiency
 
-**Legacy mode (`--use-bgenx`):**
-- Uses `bgenix` binary to extract SNPs to a temporary BGEN file
-- Then uses `bgen-reader` package to stream variants
-- Requires `bgenix` to be available
+**Performance:**
+- ~800 SNPs/second for full chromosome scans
+- ~22 seconds for 17k HapMap3 SNPs on chr22 (463k samples)
+- Constant memory usage (~140MB regardless of SNP count)
 
 ```bash
-# Legacy mode (if you need bgenix behavior)
-fungwas-stage1 \
-    --bgen data.chr22.bgen \
-    --pheno phenotypes.txt \
-    --pheno-col testosterone \
-    --snps chr22_hm3.txt \
-    --use-bgenx \
-    --bgenix-path /path/to/bgenix \
-    --out results/chr22
+# Full chromosome (streams all variants)
+fungwas-stage1 --bgen data.chr22.bgen --pheno pheno.txt --pheno-col y --out results/chr22
+
+# SNP subset (pre-filters using index, then streams matches)
+fungwas-stage1 --bgen data.chr22.bgen --pheno pheno.txt --pheno-col y --snps hm3_snps.txt --out results/chr22
 ```
-
-### BGEN streaming vs SNP subset extraction
-
-- If you supply `--snps`, Stage 1 fetches only those variants using the
-  appropriate method for the selected mode (`with_rsid()` for default mode,
-  `bgenix` temp file for legacy mode).
-- If you omit `--snps`, Stage 1 streams the full chromosome BGEN directly and
-  still processes in memory batches (`--batch-size`, default 500).
-
-This keeps targeted scans fast without paying the cost of rewriting full BGENs.
-When using legacy mode with `--snps`, temporary subset BGEN files are cleaned 
-up automatically when the run finishes.
 
 ### Multi-phenotype C++ kernel (advanced)
 
@@ -192,8 +168,7 @@ rs456
 rs789
 ```
 
-In **default mode**, these RSIDs are looked up directly using `bgen.with_rsid()`.
-In **legacy mode** (`--use-bgenx`), this file is passed to `bgenix -incl-rsids`.
+These RSIDs are matched against the BGEN file's index. Only variants present in both the list and the BGEN are processed.
 
 Note: `chr:pos` formats are not accepted in this file - only RSIDs.
 
@@ -220,16 +195,19 @@ For T=17 taus: 153 floats = 612 bytes per SNP.
 ## Performance
 
 - **C++ kernel**: OpenMP-parallelized block score computation
-- **Batched processing**: Configurable batch size for memory efficiency
-- **Speed**: ~1000 SNPs/second on single thread, scales with `--threads`
+- **Batched processing**: Configurable batch size for memory efficiency (default 500)
+- **BGEN loading**: delay_parsing + index pre-filtering for efficient streaming
+- **Speed**: ~800 SNPs/second for full scans, ~22s for 17k HM3 SNPs on chr22
 
 ## How It Works
 
 1. **Load phenotype**: Read raw phenotype column from file
 2. **Compute RIF**: Build Recentered Influence Function matrix for each tau
 3. **Residualize**: Regress out covariates from RIF (not from raw phenotype)
-4. **Block scores**: Compute per-block sufficient statistics for jackknife
-5. **Covariance**: Estimate full T×T covariance per SNP for accurate Stage 2 SEs
+4. **BGEN pre-filter**: Use BGEN index to find valid SNPs from user list
+5. **Stream variants**: Iterate BGEN with delay_parsing, extract dosages on demand
+6. **Block scores**: Compute per-block sufficient statistics for jackknife
+7. **Covariance**: Estimate full T×T covariance per SNP for accurate Stage 2 SEs
 
 ## API Reference
 
