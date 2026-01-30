@@ -396,15 +396,31 @@ def get_variants_bgen(bgen_path: str, sample_path: Optional[str],
         
         if snp_list:
             log_mem(f"Fetching {len(snp_list)} specific SNPs using bgen...")
-            # Use with_rsid to get specific variants
-            variants = []
-            for rsid in snp_list:
-                var_list = bfile.with_rsid(rsid)
-                if var_list:
-                    variants.extend(var_list)
-            log_mem(f"Found {len(variants)} variants out of {len(snp_list)} requested")
-            # Return the list of variants AND the bfile handle (keep alive!)
-            return variants, bfile.samples, None, bfile, True
+            # Choose strategy based on SNP list size
+            # - Small lists: use with_rsid (index lookups)
+            # - Large lists: stream and filter (single scan)
+            # Threshold ~1500: with_rsid cost = 1500 * 0.025s = 37.5s
+            #               streaming cost = ~34s (full chr22 scan)
+            snp_set = set(snp_list)
+            if len(snp_list) <= 1500:
+                # Use with_rsid for small lists (index lookups)
+                variants = []
+                for rsid in snp_list:
+                    var_list = bfile.with_rsid(rsid)
+                    if var_list:
+                        variants.extend(var_list)
+                log_mem(f"Found {len(variants)} variants out of {len(snp_list)} requested (index lookup)")
+                return variants, bfile.samples, None, bfile, True
+            else:
+                # Stream and filter for large lists (faster for many SNPs)
+                variants = []
+                for var in bfile:
+                    if var.rsid in snp_set:
+                        variants.append(var)
+                        if len(variants) >= len(snp_list):
+                            break
+                log_mem(f"Found {len(variants)} variants out of {len(snp_list)} requested (streaming)")
+                return variants, bfile.samples, None, bfile, True
         else:
             # Return the whole file for iteration
             return bfile, bfile.samples, None, bfile, False
