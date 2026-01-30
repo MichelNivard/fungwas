@@ -24,7 +24,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 
@@ -100,6 +100,17 @@ def parse_list_arg(values: Optional[list[str]]) -> Optional[list[str]]:
     for v in values:
         parts.extend([p.strip() for p in v.split(',') if p.strip()])
     return parts or None
+
+
+def load_snps_list(snp_file: str) -> List[str]:
+    """Load list of SNP rsIDs from file (one per line)."""
+    snps = []
+    with open(snp_file) as f:
+        for line in f:
+            rsid = line.strip().split()[0] if line.strip() else ''
+            if rsid:
+                snps.append(rsid)
+    return snps
 
 
 def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
@@ -339,6 +350,104 @@ def extract_snps_bgenix(bgen_path: str, snp_file: str, bgenix_path: str,
     return temp_bgen
 
 
+def get_variants_bgen(bgen_path: str, sample_path: Optional[str], 
+                      snp_list: Optional[List[str]], use_bgenx: bool,
+                      bgenix_path: str, out_dir: str):
+    """
+    Get variants from BGEN file using either bgen (default) or bgenx (legacy).
+    
+    Returns
+    -------
+    variants : iterable of variant objects, or bfile handle for iteration
+    samples : list of sample IDs
+    temp_bgen : path to temp file (if created), or None
+    bfile_handle : BgenReader or BgenFile handle (keep alive during iteration)
+    is_snp_subset : bool, True if returning a list of specific variants
+    """
+    temp_bgen = None
+    
+    if use_bgenx:
+        # Legacy mode: use bgenix to create temp file, then bgen-reader
+        log_mem("Using legacy bgenx mode (bgenix + bgen-reader)...")
+        if snp_list:
+            # Write SNP list to temp file for bgenix
+            snp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', 
+                                                    delete=False, dir=out_dir).name
+            with open(snp_file, 'w') as f:
+                for rsid in snp_list:
+                    f.write(rsid + '\n')
+            temp_bgen = extract_snps_bgenix(bgen_path, snp_file, bgenix_path, out_dir)
+            os.unlink(snp_file)
+            register_temp_bgen_cleanup(temp_bgen)
+            target_bgen = temp_bgen
+        else:
+            target_bgen = bgen_path
+        
+        from bgen.reader import BgenFile
+        bfile = BgenFile(target_bgen)
+        return bfile, bfile.samples, temp_bgen, bfile, False
+    
+    else:
+        # Default mode: use bgen package directly
+        from bgen import BgenReader
+        
+        log_mem("Using bgen package (default mode)...")
+        bfile = BgenReader(bgen_path, sample_path=sample_path or '')
+        
+        if snp_list:
+            log_mem(f"Fetching {len(snp_list)} specific SNPs using bgen...")
+            # Use with_rsid to get specific variants
+            variants = []
+            for rsid in snp_list:
+                var_list = bfile.with_rsid(rsid)
+                if var_list:
+                    variants.extend(var_list)
+            log_mem(f"Found {len(variants)} variants out of {len(snp_list)} requested")
+            # Return the list of variants AND the bfile handle (keep alive!)
+            return variants, bfile.samples, None, bfile, True
+        else:
+            # Return the whole file for iteration
+            return bfile, bfile.samples, None, bfile, False
+
+
+def match_samples(bgen_samples: list, sample_ids: list):
+    """Match phenotype samples to BGEN samples and return indices."""
+    sample_to_idx = {s: i for i, s in enumerate(bgen_samples)}
+    matched_indices = [sample_to_idx.get(fid) for fid in sample_ids]
+    valid_mask = np.array([idx is not None for idx in matched_indices])
+    bgen_indices = np.array([idx for idx in matched_indices if idx is not None])
+    return valid_mask, bgen_indices
+
+
+def extract_dosage(variant, bgen_indices: Optional[np.ndarray] = None, 
+                   use_bgenx: bool = False):
+    """
+    Extract dosage from variant.
+    
+    Parameters
+    ----------
+    variant : variant object from bgen or bgen-reader
+    bgen_indices : indices to extract (for bgenx mode), or None for all samples
+    use_bgenx : whether using bgenx (bgen-reader) mode
+    
+    Returns
+    -------
+    dosages : numpy array of dosages
+    """
+    if use_bgenx:
+        # bgen-reader mode
+        probs = variant.probabilities
+        if bgen_indices is not None:
+            dosages = 2 * probs[bgen_indices, 0] + probs[bgen_indices, 1]
+        else:
+            dosages = 2 * probs[:, 0] + probs[:, 1]
+    else:
+        # bgen mode - minor_allele_dosage is already a 1D numpy array
+        dosages = variant.minor_allele_dosage
+    
+    return dosages
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="FungWas Stage 1: Fast RIF quantile GWAS",
@@ -386,9 +495,11 @@ def main():
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed for block assignment')
     
-    # Tool paths
+    # BGEN loading options
+    parser.add_argument('--use-bgenx', dest='use_bgenx', action='store_true',
+                        help='Use legacy bgenx mode (bgenix + bgen-reader) instead of default bgen package')
     parser.add_argument('--bgenix-path', dest='bgenix_path', default='bgenix',
-                        help='Path to bgenix binary')
+                        help='Path to bgenix binary (only used with --use-bgenx)')
     
     # Output options
     parser.add_argument('--output-rtau', dest='output_rtau', action='store_true',
@@ -404,6 +515,10 @@ def main():
     T = len(taus)
     
     log_mem(f"Starting FungWas Stage 1 (taus={T}, blocks={args.blocks})")
+    if args.use_bgenx:
+        log_mem("Mode: LEGACY (bgenix + bgen-reader)")
+    else:
+        log_mem("Mode: DEFAULT (bgen package)")
     logger.info("Note: For Stage 2, consider mean-centering non-intercept columns of your W matrix to reduce collinearity.")
     t_start = time.time()
     t_load = time.perf_counter()
@@ -434,30 +549,24 @@ def main():
     log_mem(f"Phenotype load time: {time.perf_counter() - t_load:.2f}s")
     N = len(sample_ids)
     
-    # Setup BGEN
-    target_bgen = args.bgen
-    temp_bgen = None
+    # Setup output dir
+    out_dir = os.path.dirname(args.out) or '.'
+    os.makedirs(out_dir, exist_ok=True)
     
+    # Load SNP list if provided
+    snp_list = None
     if args.snps:
-        out_dir = os.path.dirname(args.out) or '.'
-        os.makedirs(out_dir, exist_ok=True)
-        log_mem("Using bgenix to extract SNP subset before streaming.")
-        temp_bgen = extract_snps_bgenix(args.bgen, args.snps, args.bgenix_path, out_dir)
-        register_temp_bgen_cleanup(temp_bgen)
-        target_bgen = temp_bgen
-    else:
-        log_mem("No SNP list provided; streaming full BGEN directly.")
+        snp_list = load_snps_list(args.snps)
+        log_mem(f"Loaded {len(snp_list)} SNPs from {args.snps}")
     
-    # Open BGEN
-    from bgen.reader import BgenFile
-    bfile = BgenFile(target_bgen)
-    bgen_samples = bfile.samples
+    # Open BGEN and get variants
+    variants, bgen_samples, temp_bgen, bfile_handle, is_snp_subset = get_variants_bgen(
+        args.bgen, args.sample, snp_list, args.use_bgenx, 
+        args.bgenix_path, out_dir
+    )
     
     # Match samples
-    sample_to_idx = {s: i for i, s in enumerate(bgen_samples)}
-    matched_indices = [sample_to_idx.get(fid) for fid in sample_ids]
-    valid_mask = np.array([idx is not None for idx in matched_indices])
-    bgen_indices = np.array([idx for idx in matched_indices if idx is not None])
+    valid_mask, bgen_indices = match_samples(bgen_samples, sample_ids)
     
     # Filter to matched samples
     RIF_resid_list = [rif[valid_mask] for rif in RIF_resid_list]
@@ -472,9 +581,6 @@ def main():
     block_ids = np.random.randint(0, args.blocks, N_matched).astype(np.int32)
     
     # Output setup
-    out_dir = os.path.dirname(args.out) or '.'
-    os.makedirs(out_dir, exist_ok=True)
-    
     def _sanitize_name(name: str) -> str:
         return ''.join(c if c.isalnum() or c in ('-', '_') else '_' for c in name)
 
@@ -518,14 +624,19 @@ def main():
         
         idx_in_batch = 0
         
-        for variant in bfile:
+        for variant in variants:
             if len(variant.alleles) != 2:
                 skipped_non_biallelic += 1
                 continue
 
-            # Use effect allele dosage (allele1) to align with downstream GWAS.
-            probs = variant.probabilities
-            dosages = 2 * probs[bgen_indices, 0] + probs[bgen_indices, 1]
+            # Extract dosage
+            if args.use_bgenx:
+                dosages = extract_dosage(variant, bgen_indices, use_bgenx=True)
+            else:
+                # bgen mode: get all dosages then index
+                all_dosages = extract_dosage(variant, use_bgenx=False)
+                dosages = all_dosages[bgen_indices]
+            
             G_batch[:, idx_in_batch] = dosages
 
             batch_info.append((

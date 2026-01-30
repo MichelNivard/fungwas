@@ -24,13 +24,9 @@ HPC module requirements and keeps the CLI self-contained.
 conda env update -n fungwas-stage1 -f environment.yml
 ```
 
-**Requirement:** `bgenix` must be available for SNP extraction. Install via:
-```bash
-# On HPC, typically available as module
-module load bgenix
-
-# Or download from https://enkre.net/cgi-bin/code/bgen/dir?ci=tip
-```
+**Note:** The default mode uses the `bgen` Python package directly for all
+BGEN operations. No external tools are required. If you need the legacy
+behavior using `bgenix` + `bgen-reader`, use the `--use-bgenx` flag.
 
 ## Usage
 
@@ -79,7 +75,6 @@ fungwas-stage1 \
     --blocks 25 \
     --batch-size 500 \
     --threads 8 \
-    --bgenix-path /path/to/bgenix \
     --output-rtau \
     --out results/chr22
 ```
@@ -107,29 +102,51 @@ fungwas-stage1 \
     --blocks 25 \
     --batch-size 500 \
     --threads 8 \
-    --bgenix-path /path/to/bgenix \
     --out results/chr22
 ```
 
 If `--pheno-cols` contains a single phenotype, Stage 1 automatically falls back
 to the single-phenotype kernel to avoid extra overhead.
 
+### BGEN loading modes
+
+Stage 1 supports two modes for loading BGEN files:
+
+**Default mode (`bgen` package):**
+- Uses the Python `bgen` package directly for all operations
+- When `--snps` is provided, uses `with_rsid()` to fetch specific variants
+  without creating temporary files
+- No external tools required
+- Generally faster for targeted SNP lists
+
+**Legacy mode (`--use-bgenx`):**
+- Uses `bgenix` binary to extract SNPs to a temporary BGEN file
+- Then uses `bgen-reader` package to stream variants
+- Requires `bgenix` to be available
+
+```bash
+# Legacy mode (if you need bgenix behavior)
+fungwas-stage1 \
+    --bgen data.chr22.bgen \
+    --pheno phenotypes.txt \
+    --pheno-col testosterone \
+    --snps chr22_hm3.txt \
+    --use-bgenx \
+    --bgenix-path /path/to/bgenix \
+    --out results/chr22
+```
+
 ### BGEN streaming vs SNP subset extraction
 
-- If you supply `--snps`, Stage 1 uses `bgenix` once to build a temporary
-  subset BGEN (RSID list), then streams that subset in batches.
+- If you supply `--snps`, Stage 1 fetches only those variants using the
+  appropriate method for the selected mode (`with_rsid()` for default mode,
+  `bgenix` temp file for legacy mode).
 - If you omit `--snps`, Stage 1 streams the full chromosome BGEN directly and
   still processes in memory batches (`--batch-size`, default 500).
 
 This keeps targeted scans fast without paying the cost of rewriting full BGENs.
-Temporary subset BGEN files are cleaned up automatically when the run finishes.
-
-### Why this BGEN strategy
-
-Benchmarks on UK Biobank chr22/chr1 show that `bgenix` + `BgenFile` is faster
-for targeted SNP lists than `bgen_reader` (even with chunked reads). For full
-chromosome scans, Stage 1 skips `bgenix` and streams the original BGEN directly
-to avoid unnecessary IO and temp file churn.
+When using legacy mode with `--snps`, temporary subset BGEN files are cleaned 
+up automatically when the run finishes.
 
 ### Multi-phenotype C++ kernel (advanced)
 
@@ -175,8 +192,10 @@ rs456
 rs789
 ```
 
-The CLI passes this to `bgenix -incl-rsids`, so `chr:pos` formats are not
-accepted in this file.
+In **default mode**, these RSIDs are looked up directly using `bgen.with_rsid()`.
+In **legacy mode** (`--use-bgenx`), this file is passed to `bgenix -incl-rsids`.
+
+Note: `chr:pos` formats are not accepted in this file - only RSIDs.
 
 ## Output Files
 
