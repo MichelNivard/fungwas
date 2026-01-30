@@ -350,6 +350,39 @@ def extract_snps_bgenix(bgen_path: str, snp_file: str, bgenix_path: str,
     return temp_bgen
 
 
+class VariantGenerator:
+    """Generator that yields variants one at a time while keeping bfile handle alive."""
+    def __init__(self, bfile, mode, data):
+        self.bfile = bfile  # Keep handle alive!
+        self.mode = mode  # 'all', 'lookup', or 'filter'
+        self.data = data  # snp_list for lookup, snp_set for filter
+        self.found = 0
+        
+    def __iter__(self):
+        if self.mode == 'all':
+            # Stream full BGEN
+            for var in self.bfile:
+                yield var
+        elif self.mode == 'lookup':
+            # Index lookup for each SNP
+            for rsid in self.data:
+                var_list = self.bfile.with_rsid(rsid)
+                if var_list:
+                    for var in var_list:
+                        self.found += 1
+                        yield var
+        elif self.mode == 'filter':
+            # Stream and filter
+            snp_set = self.data
+            target_count = len(snp_set)
+            for var in self.bfile:
+                if var.rsid in snp_set:
+                    self.found += 1
+                    yield var
+                    if self.found >= target_count:
+                        break
+
+
 def get_variants_bgen(bgen_path: str, sample_path: Optional[str], 
                       snp_list: Optional[List[str]], use_bgenx: bool,
                       bgenix_path: str, out_dir: str):
@@ -358,11 +391,11 @@ def get_variants_bgen(bgen_path: str, sample_path: Optional[str],
     
     Returns
     -------
-    variants : iterable of variant objects, or bfile handle for iteration
+    variants : iterable of variant objects (generator or bfile handle)
     samples : list of sample IDs
     temp_bgen : path to temp file (if created), or None
     bfile_handle : BgenReader or BgenFile handle (keep alive during iteration)
-    is_snp_subset : bool, True if returning a list of specific variants
+    is_snp_subset : bool, True if returning filtered variants
     """
     temp_bgen = None
     
@@ -403,24 +436,15 @@ def get_variants_bgen(bgen_path: str, sample_path: Optional[str],
             #               streaming cost = ~34s (full chr22 scan)
             snp_set = set(snp_list)
             if len(snp_list) <= 1500:
-                # Use with_rsid for small lists (index lookups)
-                variants = []
-                for rsid in snp_list:
-                    var_list = bfile.with_rsid(rsid)
-                    if var_list:
-                        variants.extend(var_list)
-                log_mem(f"Found {len(variants)} variants out of {len(snp_list)} requested (index lookup)")
-                return variants, bfile.samples, None, bfile, True
+                # Use generator with index lookups (memory efficient)
+                log_mem(f"Using index lookup for {len(snp_list)} SNPs")
+                gen = VariantGenerator(bfile, 'lookup', snp_list)
+                return gen, bfile.samples, None, bfile, True
             else:
-                # Stream and filter for large lists (faster for many SNPs)
-                variants = []
-                for var in bfile:
-                    if var.rsid in snp_set:
-                        variants.append(var)
-                        if len(variants) >= len(snp_list):
-                            break
-                log_mem(f"Found {len(variants)} variants out of {len(snp_list)} requested (streaming)")
-                return variants, bfile.samples, None, bfile, True
+                # Stream and filter (faster for many SNPs)
+                log_mem(f"Using streaming filter for {len(snp_list)} SNPs")
+                gen = VariantGenerator(bfile, 'filter', snp_set)
+                return gen, bfile.samples, None, bfile, True
         else:
             # Return the whole file for iteration
             return bfile, bfile.samples, None, bfile, False
