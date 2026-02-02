@@ -359,7 +359,11 @@ def match_samples(bgen_samples: list, sample_ids: list):
 
 def extract_dosage(variant, bgen_indices: Optional[np.ndarray] = None):
     """
-    Extract dosage from variant.
+    Extract dosage from variant for the first allele (alleles[0]).
+    This ensures dosage matches effect_allele which is set to alleles[0].
+    
+    BGEN dosage is the expected count of allele[1] (alt_dosage).
+    Dosage for allele[0] = 2 - alt_dosage (assuming diploid).
     
     Parameters
     ----------
@@ -368,9 +372,12 @@ def extract_dosage(variant, bgen_indices: Optional[np.ndarray] = None):
     
     Returns
     -------
-    dosages : numpy array of dosages
+    dosages : numpy array of dosages for alleles[0]
     """
-    dosages = variant.minor_allele_dosage
+    # alt_dosage is the expected count of allele[1]
+    # For diploid, dosage of allele[0] = 2 - alt_dosage
+    alt_dosages = variant.alt_dosage
+    dosages = 2.0 - alt_dosages
     if bgen_indices is not None:
         return dosages[bgen_indices]
     return dosages
