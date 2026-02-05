@@ -521,7 +521,8 @@ def main():
     # Column headers
     cols = ['snp_id', 'chr', 'bp', 'effect_allele', 'other_allele']
     for t in taus:
-        cols.extend([f'beta_tau_{t:.2f}', f'se_tau_{t:.2f}'])
+        # Use 3 decimals to avoid tau label collisions on dense grids (e.g. 100 taus).
+        cols.extend([f'beta_tau_{t:.3f}', f'se_tau_{t:.3f}'])
     
     # Upper triangle size
     n_cov_elements = T * (T + 1) // 2
@@ -670,7 +671,7 @@ def main():
 
             rtau_file = f"{prefix}.Rtau.tsv"
             with open(rtau_file, 'w') as f:
-                f.write('\t'.join([f'tau_{t:.2f}' for t in taus]) + '\n')
+                f.write('\t'.join([f'tau_{t:.3f}' for t in taus]) + '\n')
                 for row in R_tau:
                     f.write('\t'.join([f'{v:.6f}' for v in row]) + '\n')
             logger.info(f"Wrote R_tau: {rtau_file}")
