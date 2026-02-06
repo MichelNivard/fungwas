@@ -37,7 +37,8 @@ timing <- system.time({
     stage1,
     W_list = list(add = W_add, add_mult = W_add_mult),
     N = 20000,
-    n_threads = 2
+    n_threads = 2,
+    se_mode = "dwls"
   )
 })
 cat("Model tournament time (sec):", timing[["elapsed"]], "\n")

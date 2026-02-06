@@ -59,10 +59,28 @@ BEGIN_RCPP
 END_RCPP
 }
 
+// fit_multi_models_tau_cov
+NumericMatrix fit_multi_models_tau_cov(const arma::mat& beta_stage1, const NumericVector& cov_vec, const NumericVector& offsets, const List& W_list, double N, int n_threads);
+RcppExport SEXP _fungwasStage2_fit_multi_models_tau_cov(SEXP beta_stage1SEXP, SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP W_listSEXP, SEXP NSEXP, SEXP n_threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type beta_stage1(beta_stage1SEXP);
+    Rcpp::traits::input_parameter< const NumericVector& >::type cov_vec(cov_vecSEXP);
+    Rcpp::traits::input_parameter< const NumericVector& >::type offsets(offsetsSEXP);
+    Rcpp::traits::input_parameter< const List& >::type W_list(W_listSEXP);
+    Rcpp::traits::input_parameter< double >::type N(NSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(fit_multi_models_tau_cov(beta_stage1, cov_vec, offsets, W_list, N, n_threads));
+    return rcpp_result_gen;
+END_RCPP
+}
+
 static const R_CallMethodDef CallEntries[] = {
     {"_fungwasStage2_compute_calibrated_se", (DL_FUNC) &_fungwasStage2_compute_calibrated_se, 4},
     {"_fungwasStage2_compute_param_cov", (DL_FUNC) &_fungwasStage2_compute_param_cov, 4},
     {"_fungwasStage2_fit_multi_models", (DL_FUNC) &_fungwasStage2_fit_multi_models, 5},
+    {"_fungwasStage2_fit_multi_models_tau_cov", (DL_FUNC) &_fungwasStage2_fit_multi_models_tau_cov, 6},
     {NULL, NULL, 0}
 };
 

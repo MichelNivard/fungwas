@@ -27,3 +27,7 @@ compute_param_cov <- function(cov_vec, offsets, A, K) {
 fit_multi_models <- function(beta_stage1, se_stage1, W_list, N, n_threads = 1L) {
     .Call(`_fungwasStage2_fit_multi_models`, beta_stage1, se_stage1, W_list, N, n_threads)
 }
+
+fit_multi_models_tau_cov <- function(beta_stage1, cov_vec, offsets, W_list, N, n_threads = 1L) {
+    .Call(`_fungwasStage2_fit_multi_models_tau_cov`, beta_stage1, cov_vec, offsets, W_list, N, n_threads)
+}
