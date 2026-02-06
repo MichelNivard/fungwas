@@ -10,6 +10,7 @@ Usage:
 Outputs:
     {out}.stage1.tsv.gz  - Beta/SE per SNP per tau
     {out}.cov.gz         - Upper triangle covariance matrices (binary)
+    {out}.cov.ids.tsv.gz - SNP IDs for covariance alignment (one per row)
     {out}.Rtau.tsv       - Population tau correlation matrix (for plugin_cor)
 """
 
@@ -517,6 +518,7 @@ def main():
 
     out_tsv_list = [f"{prefix}.stage1.tsv.gz" for prefix in out_prefixes]
     out_cov_list = [f"{prefix}.cov.gz" for prefix in out_prefixes]
+    out_cov_ids_list = [f"{prefix}.cov.ids.tsv.gz" for prefix in out_prefixes]
     
     # Column headers
     cols = ['snp_id', 'chr', 'bp', 'effect_allele', 'other_allele']
@@ -544,8 +546,11 @@ def main():
     with ExitStack() as stack:
         f_tsv_list = [stack.enter_context(gzip.open(path, 'wt')) for path in out_tsv_list]
         f_cov_list = [stack.enter_context(gzip.open(path, 'wb')) for path in out_cov_list]
+        f_cov_ids_list = [stack.enter_context(gzip.open(path, 'wt')) for path in out_cov_ids_list]
         for f_tsv in f_tsv_list:
             f_tsv.write('\t'.join(cols) + '\n')
+        for f_ids in f_cov_ids_list:
+            f_ids.write('snp_id\n')
         
         idx_in_batch = 0
         
@@ -590,6 +595,7 @@ def main():
                 for p_idx, stats in enumerate(stats_list):
                     f_tsv = f_tsv_list[p_idx]
                     f_cov = f_cov_list[p_idx]
+                    f_cov_ids = f_cov_ids_list[p_idx]
                     all_betas = all_betas_list[p_idx]
 
                     for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
@@ -605,6 +611,7 @@ def main():
 
                         cov_upper = Sigma[np.triu_indices(T)]
                         f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+                        f_cov_ids.write(f"{info[0]}\n")
 
                         if args.output_rtau:
                             all_betas.append(beta)
@@ -638,6 +645,7 @@ def main():
             for p_idx, stats in enumerate(stats_list):
                 f_tsv = f_tsv_list[p_idx]
                 f_cov = f_cov_list[p_idx]
+                f_cov_ids = f_cov_ids_list[p_idx]
                 all_betas = all_betas_list[p_idx]
 
                 for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
@@ -653,6 +661,7 @@ def main():
 
                     cov_upper = Sigma[np.triu_indices(T)]
                     f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+                    f_cov_ids.write(f"{info[0]}\n")
 
                     if args.output_rtau:
                         all_betas.append(beta)

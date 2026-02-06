@@ -344,7 +344,9 @@ if (se_mode == "diagonal") {
 #' @param stage1_file Path to Stage 1 TSV file (.stage1.tsv.gz)
 #' @param W Weight matrix (T x K)
 #' @param se_mode SE computation mode (see \code{param_gwas})
-#' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode
+#' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode. If a
+#'   sidecar file with suffix .cov.ids.tsv.gz exists, it is used to validate
+#'   row alignment against the Stage 1 file.
 #' @param rtau_file Path to R_tau correlation matrix (.Rtau.tsv) for plugin_cor mode
 #' @param return_cov Optional output of parameter covariance derived from Stage 1
 #'   tau covariance. One of \code{"none"} (default), \code{"upper"}, \code{"full"},
@@ -353,6 +355,25 @@ if (se_mode == "diagonal") {
 #'   (binary float32, same layout as Stage 1 .cov.gz).
 #'
 #' @return A data.table with SNP info and parameter estimates
+.validate_cov_ids <- function(stage1_dt, cov_ids_file) {
+  cov_ids_dt <- data.table::fread(cov_ids_file)
+  if (!("snp_id" %in% names(cov_ids_dt))) {
+    stop("Covariance IDs file missing snp_id column: ", cov_ids_file)
+  }
+  if (nrow(cov_ids_dt) != nrow(stage1_dt)) {
+    stop("Covariance IDs rows (", nrow(cov_ids_dt),
+         ") do not match Stage 1 rows (", nrow(stage1_dt), ").")
+  }
+  mism <- which(cov_ids_dt$snp_id != stage1_dt$snp_id)
+  if (length(mism) > 0) {
+    i <- mism[1]
+    stop("Covariance IDs mismatch at row ", i,
+         ": cov_ids=", cov_ids_dt$snp_id[i],
+         " stage1=", stage1_dt$snp_id[i])
+  }
+  invisible(TRUE)
+}
+
 #' 
 #' @export
 param_gwas_from_file <- function(
@@ -397,6 +418,15 @@ param_gwas_from_file <- function(
   cov_data <- NULL
   if (se_mode == "tau_cov" && !is.null(cov_file)) {
     message("Loading covariance file: ", cov_file)
+
+    # Validate row alignment if cov IDs sidecar exists
+    cov_ids_file <- sub("\\.cov\\.gz$", ".cov.ids.tsv.gz", cov_file)
+    if (!file.exists(cov_ids_file)) {
+      stop("Missing covariance IDs file: ", cov_ids_file,
+           ". This file is required to validate row alignment.")
+    }
+    message("Validating covariance SNP IDs: ", cov_ids_file)
+    .validate_cov_ids(stage1_dt, cov_ids_file)
     
     # Read binary covariance
     con <- gzfile(cov_file, "rb")
