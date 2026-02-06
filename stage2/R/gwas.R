@@ -347,6 +347,8 @@ if (se_mode == "diagonal") {
 #' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode. If a
 #'   sidecar file with suffix .cov.ids.tsv.gz exists, it is used to validate
 #'   row alignment against the Stage 1 file.
+#' @param unsafe_skip_cov_ids If TRUE, allow tau_cov to proceed without a
+#'   covariate IDs sidecar (not recommended).
 #' @param rtau_file Path to R_tau correlation matrix (.Rtau.tsv) for plugin_cor mode
 #' @param return_cov Optional output of parameter covariance derived from Stage 1
 #'   tau covariance. One of \code{"none"} (default), \code{"upper"}, \code{"full"},
@@ -383,7 +385,8 @@ param_gwas_from_file <- function(
   cov_file = NULL,
   rtau_file = NULL,
   return_cov = c("none", "upper", "full", "mashr"),
-  param_cov_file = NULL
+  param_cov_file = NULL,
+  unsafe_skip_cov_ids = FALSE
 ) {
   se_mode <- match.arg(se_mode)
   return_cov <- match.arg(return_cov)
@@ -422,11 +425,18 @@ param_gwas_from_file <- function(
     # Validate row alignment if cov IDs sidecar exists
     cov_ids_file <- sub("\\.cov\\.gz$", ".cov.ids.tsv.gz", cov_file)
     if (!file.exists(cov_ids_file)) {
-      stop("Missing covariance IDs file: ", cov_ids_file,
-           ". This file is required to validate row alignment.")
+      if (!isTRUE(unsafe_skip_cov_ids)) {
+        stop("Missing covariance IDs file: ", cov_ids_file,
+             ". This file is required to validate row alignment. ",
+             "Set unsafe_skip_cov_ids=TRUE to proceed without validation.")
+      }
+      warning("Missing covariance IDs file: ", cov_ids_file,
+              ". Proceeding without validation because unsafe_skip_cov_ids=TRUE.",
+              call. = FALSE)
+    } else {
+      message("Validating covariance SNP IDs: ", cov_ids_file)
+      .validate_cov_ids(stage1_dt, cov_ids_file)
     }
-    message("Validating covariance SNP IDs: ", cov_ids_file)
-    .validate_cov_ids(stage1_dt, cov_ids_file)
     
     # Read binary covariance
     con <- gzfile(cov_file, "rb")
@@ -482,4 +492,93 @@ param_gwas_from_file <- function(
     return(out_dt)
   }
   list(results = out_dt, param_cov_upper = result$param_cov_upper, param_cov = result$param_cov, mashr = result$mashr)
+}
+
+#' Convenience wrapper for param_gwas_multi() that reads Stage 1 and covariance
+#'
+#' @param stage1_file Path to Stage 1 results (.stage1.tsv.gz)
+#' @param W_list List of weight matrices (each T x K).
+#' @param N Sample size used for BIC.
+#' @param se_mode One of \code{"tau_cov"} or \code{"dwls"} (or \code{"diagonal"}).
+#' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode.
+#' @param unsafe_skip_cov_ids If TRUE, allow tau_cov to proceed without a
+#'   covariate IDs sidecar (not recommended).
+#' @param n_threads Number of OpenMP threads.
+#'
+#' @return Matrix with AIC/BIC columns per model.
+#'
+#' @export
+param_gwas_multi_from_file <- function(
+  stage1_file,
+  W_list,
+  N,
+  se_mode = c("tau_cov", "dwls", "diagonal"),
+  cov_file = NULL,
+  unsafe_skip_cov_ids = FALSE,
+  n_threads = 1L
+) {
+  se_mode <- match.arg(se_mode)
+  if (!requireNamespace("data.table", quietly = TRUE)) {
+    stop("data.table package required for param_gwas_multi_from_file")
+  }
+
+  message("Reading Stage 1 file: ", stage1_file)
+  stage1_dt <- data.table::fread(stage1_file)
+  data.table::setDT(stage1_dt)
+
+  beta_cols <- grep("^beta_tau_", names(stage1_dt), value = TRUE)
+  se_cols <- grep("^se_tau_", names(stage1_dt), value = TRUE)
+  taus <- as.numeric(sub("^beta_tau_", "", beta_cols))
+
+  Q_slope <- t(as.matrix(stage1_dt[, beta_cols, with = FALSE]))
+  SE_tau <- t(as.matrix(stage1_dt[, se_cols, with = FALSE]))
+
+  stage1 <- list(
+    taus = taus,
+    q_tau = rep(0, length(taus)),
+    Q_slope = Q_slope,
+    SE_tau = SE_tau
+  )
+
+  cov_data <- NULL
+  if (se_mode == "tau_cov") {
+    if (is.null(cov_file)) {
+      stop("se_mode = 'tau_cov' requires cov_file.")
+    }
+    message("Loading covariance file: ", cov_file)
+
+    cov_ids_file <- sub("\\.cov\\.gz$", ".cov.ids.tsv.gz", cov_file)
+    if (!file.exists(cov_ids_file)) {
+      if (!isTRUE(unsafe_skip_cov_ids)) {
+        stop("Missing covariance IDs file: ", cov_ids_file,
+             ". This file is required to validate row alignment. ",
+             "Set unsafe_skip_cov_ids=TRUE to proceed without validation.")
+      }
+      warning("Missing covariance IDs file: ", cov_ids_file,
+              ". Proceeding without validation because unsafe_skip_cov_ids=TRUE.",
+              call. = FALSE)
+    } else {
+      message("Validating covariance SNP IDs: ", cov_ids_file)
+      .validate_cov_ids(stage1_dt, cov_ids_file)
+    }
+
+    con <- gzfile(cov_file, "rb")
+    cov_vec <- readBin(con, "numeric", n = 2e9, size = 4)
+    close(con)
+
+    n_cov_elements <- length(taus) * (length(taus) + 1) / 2
+    n_snps <- nrow(stage1_dt)
+    offsets <- seq(0, by = n_cov_elements * 4, length.out = n_snps)
+
+    cov_data <- list(cov_vec = cov_vec, offsets = offsets)
+  }
+
+  param_gwas_multi(
+    stage1 = stage1,
+    W_list = W_list,
+    N = N,
+    n_threads = n_threads,
+    se_mode = se_mode,
+    cov_data = cov_data
+  )
 }
