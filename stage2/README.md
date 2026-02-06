@@ -102,6 +102,18 @@ results <- param_gwas_from_file(
 )
 ```
 
+If your covariance file predates `.cov.ids.tsv.gz`, you must opt in to unsafe mode:
+
+```r
+results <- param_gwas_from_file(
+  stage1_file = "path/to/stage1.tsv.gz",
+  W = my_weight_matrix,
+  se_mode = "tau_cov",
+  cov_file = "path/to/stage1.cov.gz",
+  unsafe_skip_cov_ids = TRUE
+)
+```
+
 ### Parameter covariance (generic, any model)
 If you run with `se_mode = "tau_cov"`, Stage 2 can emit per-SNP covariance of the
 mapped parameters (for mashr or other downstream tools).
@@ -154,6 +166,30 @@ W_list <- list(
 
 model_scores <- param_gwas_multi(stage1_object, W_list, N = 20000)
 head(model_scores)
+```
+
+### `param_gwas_multi_from_file()`
+Convenience wrapper that reads Stage 1 and (optionally) covariance files.
+
+```r
+model_scores <- param_gwas_multi_from_file(
+  stage1_file = "path/to/stage1.tsv.gz",
+  cov_file = "path/to/stage1.cov.gz",
+  W_list = W_list,
+  N = 20000
+)
+```
+
+If your covariance file predates `.cov.ids.tsv.gz`, you must opt in to unsafe mode:
+
+```r
+model_scores <- param_gwas_multi_from_file(
+  stage1_file = "path/to/stage1.tsv.gz",
+  cov_file = "path/to/stage1.cov.gz",
+  W_list = W_list,
+  N = 20000,
+  unsafe_skip_cov_ids = TRUE
+)
 ```
 
 ### Weight Builders
