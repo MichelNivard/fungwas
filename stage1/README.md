@@ -48,10 +48,10 @@ from fungwas_stage1 import run_stage1
 N, M = 5000, 100
 G = np.random.binomial(2, 0.3, (N, M)).astype(float)
 Y = np.random.randn(N)  # Raw phenotype (NOT pre-computed RIF!)
-taus = np.arange(0.10, 0.91, 0.05)
+taus = np.linspace(0.02, 0.98, 45)
 
 # Run Stage 1 - RIF is computed internally
-result = run_stage1(G, Y, taus, n_blocks=25, n_threads=4)
+result = run_stage1(G, Y, taus, n_blocks=None, n_threads=4)  # auto blocks = max(T+20, 64)
 
 # Access results
 print(result['betas'].shape)       # (M, T) tau-level betas
@@ -77,10 +77,11 @@ fungwas-stage1 \
     --pheno-col testosterone \
     --covar covariates.txt \
     --snps chr22_hm3.txt \
-    --taus "0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90" \
-    --blocks 25 \
+    --taus "0.020,0.042,0.064,0.085,0.107,0.129,0.151,0.173,0.195,0.216,0.238,0.260,0.282,0.304,0.325,0.347,0.369,0.391,0.413,0.435,0.456,0.478,0.500,0.522,0.544,0.565,0.587,0.609,0.631,0.653,0.675,0.696,0.718,0.740,0.762,0.784,0.805,0.827,0.849,0.871,0.893,0.915,0.936,0.958,0.980" \
+    --blocks 64 \
     --batch-size 500 \
     --threads 8 \
+    --cov-dtype int8 \
     --output-rtau \
     --out results/chr22
 ```
@@ -105,7 +106,7 @@ fungwas-stage1 \
     --covar covariates.txt \
     --snps chr22_hm3.txt \
     --taus "0.10,0.50,0.90" \
-    --blocks 25 \
+    --blocks 64 \
     --batch-size 500 \
     --threads 8 \
     --out results/chr22
@@ -189,7 +190,9 @@ Note: `chr:pos` formats are not accepted in this file - only RSIDs.
 | File | Description |
 |------|-------------|
 | `{out}.stage1.tsv.gz` | Per-SNP betas and SEs for each tau |
-| `{out}.cov.gz` | Binary covariance matrices (upper triangle, float32) |
+| `{out}.cov.gz` | Binary covariance matrices (upper triangle; int8 by default, float32 optional) |
+| `{out}.cov.scale.gz` | Per-SNP float32 scales (only when `--cov-dtype int8`) |
+| `{out}.cov.meta.json` | Covariance storage metadata (`cov_dtype`, record layout) |
 | `{out}.Rtau.tsv` | T×T correlation matrix (with `--output-rtau`) |
 
 ### Stage 1 TSV format
@@ -201,8 +204,17 @@ rs123   22   1000  A  G  0.0123         0.0045       0.0089         0.0041      
 
 ### Covariance binary format
 
-For each SNP, the upper triangle of the T×T covariance matrix is stored as float32.
-For T=17 taus: 153 floats = 612 bytes per SNP.
+Default (`--cov-dtype int8`):
+- For each SNP, Stage 1 stores the upper triangle of the T×T covariance matrix as int8.
+- A per-SNP float32 scale is written to `{out}.cov.scale.gz`.
+- Reconstruct as: `cov_upper_float = cov_upper_int8 * scale`.
+
+Legacy mode (`--cov-dtype float32`):
+- For each SNP, the upper triangle is stored directly as float32.
+
+For T=17 taus:
+- Float32: 153 values = 612 bytes/SNP.
+- Int8 + scale: 153 bytes + 4-byte scale = 157 bytes/SNP (~74% smaller).
 
 ## Performance
 
@@ -223,7 +235,7 @@ For T=17 taus: 153 floats = 612 bytes per SNP.
 
 ## API Reference
 
-### `run_stage1(G, Y, taus, covariates=None, n_blocks=25, seed=42, n_threads=1)`
+### `run_stage1(G, Y, taus, covariates=None, n_blocks=None, seed=42, n_threads=1)`
 
 Full Stage 1 pipeline on arrays.
 
@@ -237,3 +249,8 @@ Full Stage 1 pipeline on arrays.
 - `n_threads`: OpenMP threads
 
 **Returns:** dict with `betas`, `se`, `covariances`, `q_tau`, `taus`
+
+Important:
+- Stage 1 now enforces `n_blocks > n_taus` for covariance stability.
+- Recommended for robust Stage 2 `tau_cov`: `n_blocks >= n_taus + 20`.
+- A practical default is 45 taus in `[0.02, 0.98]` with auto blocks `max(T + 20, 64)` (i.e., 65 for 45 taus).

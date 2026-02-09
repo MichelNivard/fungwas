@@ -114,6 +114,11 @@ results <- param_gwas_from_file(
 )
 ```
 
+Covariance storage compatibility:
+- Stage 2 auto-detects and reads both formats:
+- Legacy float32 `.cov.gz`
+- Compact int8 `.cov.gz` with per-SNP scales in `.cov.scale.gz`
+
 ### Parameter covariance (generic, any model)
 If you run with `se_mode = "tau_cov"`, Stage 2 can emit per-SNP covariance of the
 mapped parameters (for mashr or other downstream tools).
@@ -240,6 +245,123 @@ Rscript stage2/diagnose_tau_grid.R --weights path/to/weights.rds
 Notes:
 - If you provide `stage1.tsv.gz` and `cov.gz`, the diagnostics use **empirical** tau covariance (recommended).
 - If not provided, diagnostics use **theoretical** (normal) tau covariance.
+
+## Generic Tau-Grid Model Comparison
+Use this when you already have Stage 1 beta/se matrices and multiple model weight matrices, and you want an analogous model-tournament summary across tau-grid sizes.
+
+Script:
+
+```bash
+Rscript stage2/scripts/taugrid_model_compare_fixed_nocov.R \
+  --stage1-tsv path/to/stage1.tsv.gz \
+  --weights add=path/add.rds,shift=path/shift.rds,both=path/both.rds,vqtl=path/vqtl.rds \
+  --out-dir results/taugrid_generic \
+  --kmax 40 \
+  --k-eval 9,13,17,25,33,40 \
+  --greedy-mode both
+```
+
+Key options:
+- `--greedy-mode=no_cov` uses fixed-monotone greedy selection with no covariance pre-whitening.
+- `--greedy-mode=emp_cov` uses fixed-monotone greedy selection after empirical tau-covariance pre-whitening from Stage 1 beta profiles.
+- `--greedy-mode=both` runs both and writes direct comparison outputs.
+
+Main outputs:
+- `greedy_fixed_monotone_<mode>_sequence.tsv`
+- `model_compare_summary_by_k_<mode>.tsv`
+- `model_compare_detail_by_snp_<mode>.tsv.gz`
+- `winner_counts_by_k_<mode>.tsv`
+- `agreement_vs_k_<mode>.png`
+- `delta_boxplot_by_k_<mode>.png`
+
+## Known-Truth Simulation for Tau Count and Tau-Covariance
+Use this to test whether increasing taus helps/hurts model recovery, and whether covariance-aware scoring (`tau_cov`) improves recovery over diagonal-only (`dwls`) under realistic tau correlation.
+
+Script:
+
+```bash
+Rscript stage2/scripts/simulate_taugrid_model_recovery.R \
+  --weights add=path/add.rds,shift=path/shift.rds,both=path/both.rds,vqtl=path/vqtl.rds \
+  --out-dir results/sim_taugrid \
+  --n-snps 400 \
+  --n-reps 10 \
+  --k-eval 9,13,17,25,33,40 \
+  --grid-mode both \
+  --rho 0.95 \
+  --noise-sd 0.04 \
+  --cov-jitter 0.25
+```
+
+Design notes:
+- Simulates known-truth SNPs from your supplied models (`add`, `shift`, `both`, `vqtl` by default).
+- Adds per-SNP correlated tau-noise with AR(1)-like structure and SNP-to-SNP covariance heterogeneity.
+- Scores each SNP under all models with both `dwls` and `tau_cov`.
+- Reports recovery accuracy by `k`, tau-grid mode, and true model.
+
+Main outputs:
+- `sim_summary.tsv`
+- `sim_accuracy_by_truth.tsv`
+- `sim_confusion_counts.tsv`
+- `sim_detail.tsv.gz`
+- `sim_accuracy_vs_k.png`
+- `sim_accuracy_by_truth_vs_k.png`
+- `sim_delta_vs_k.png`
+
+## Full Stage1->Stage2 Recovery Simulation
+This workflow runs a true end-to-end benchmark:
+1. Simulate raw `G` and `Y`
+2. Run Stage1 (with per-SNP tau covariance in `.cov.gz`)
+3. Run Stage2 model recovery across tau-grid sizes and `dwls` vs `tau_cov`
+4. Evaluate against known truth (`true_model`, `theta`, true tau profile)
+
+### Step 1: Simulate raw data and run Stage1
+```bash
+python3 stage2/scripts/simulate_full_pipeline_stage1.py \
+  --out-prefix results/fullsim/bmi_fullsim \
+  --weights add=inputs/data/weights/bmi_100tau/weights_additive_bmi.rds,shift=inputs/data/weights/bmi_100tau/weights_multiplicative_bmi.rds,both=inputs/data/weights/bmi_100tau/weights_both_bmi.rds,vqtl=inputs/data/weights/bmi_100tau/weights_vqtl_bmi.rds \
+  --n-samples 12000 \
+  --n-snps 1500 \
+  --n-threads 8
+```
+
+Block/taus stability note:
+- Ensure `n_blocks > n_taus` (enforced by Stage 1).
+- Recommended: `n_blocks >= n_taus + 20`.
+- Practical default tradeoff: 45 interior taus (`0.02-0.98`) with auto blocks `max(n_taus + 20, 64)`.
+
+Outputs:
+- `results/fullsim/bmi_fullsim.stage1.tsv.gz`
+- `results/fullsim/bmi_fullsim.cov.gz`
+- `results/fullsim/bmi_fullsim.cov.ids.tsv.gz`
+- `results/fullsim/bmi_fullsim.truth.tsv.gz`
+- `results/fullsim/bmi_fullsim.meta.json`
+
+### Step 2: Evaluate Stage2 recovery vs tau count
+```bash
+Rscript stage2/scripts/evaluate_full_pipeline_taucount.R \
+  --stage1-tsv=results/fullsim/bmi_fullsim.stage1.tsv.gz \
+  --cov-file=results/fullsim/bmi_fullsim.cov.gz \
+  --truth-tsv=results/fullsim/bmi_fullsim.truth.tsv.gz \
+  --weights=add=inputs/data/weights/bmi_100tau/weights_additive_bmi.rds,shift=inputs/data/weights/bmi_100tau/weights_multiplicative_bmi.rds,both=inputs/data/weights/bmi_100tau/weights_both_bmi.rds,vqtl=inputs/data/weights/bmi_100tau/weights_vqtl_bmi.rds \
+  --out-dir=results/fullsim/bmi_fullsim.eval \
+  --k-eval=9,13,17,25,33,40,60 \
+  --grid-mode=both
+```
+
+### One-command wrapper
+```bash
+stage2/scripts/run_full_pipeline_simulation.sh \
+  results/fullsim/bmi_fullsim \
+  add=inputs/data/weights/bmi_100tau/weights_additive_bmi.rds,shift=inputs/data/weights/bmi_100tau/weights_multiplicative_bmi.rds,both=inputs/data/weights/bmi_100tau/weights_both_bmi.rds,vqtl=inputs/data/weights/bmi_100tau/weights_vqtl_bmi.rds \
+  12000 1500 8 9,13,17,25,33,40,60
+```
+
+Key evaluation outputs:
+- `summary_recovery.tsv`: accuracy, delta, profile-MSE by `grid`, `k`, `se_mode`
+- `confusion_counts.tsv`: full confusion table (`true_model` vs `winner`)
+- `theta_bias_mse.tsv`: bias/MSE/RMSE of true-model parameter estimates
+- `accuracy_vs_k.png`: recovery vs tau count
+- `winner_mse_vs_k.png`: profile-MSE vs tau count
 
 ## REGENIE inputs (fast Stage 1)
 

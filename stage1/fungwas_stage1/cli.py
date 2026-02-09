@@ -16,6 +16,7 @@ Outputs:
 
 import argparse
 import gzip
+import json
 import logging
 import os
 import struct
@@ -420,10 +421,11 @@ def main():
                         help='REGENIE step1 LOCO predictions (for future use)')
     
     # Algorithm parameters
-    parser.add_argument('--taus', default="0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90",
-                        help='Comma-separated tau values')
-    parser.add_argument('--blocks', type=int, default=25,
-                        help='Number of jackknife blocks')
+    default_taus = ",".join([f"{t:.3f}" for t in np.linspace(0.02, 0.98, 45)])
+    parser.add_argument('--taus', default=default_taus,
+                        help='Comma-separated tau values (default: 45 taus from 0.02 to 0.98)')
+    parser.add_argument('--blocks', type=int, default=None,
+                        help='Number of jackknife blocks (default: max(taus + 20, 64))')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=500,
                         help='SNPs per batch for memory efficiency')
     parser.add_argument('--threads', type=int, default=1,
@@ -434,6 +436,10 @@ def main():
     # Output options
     parser.add_argument('--output-rtau', dest='output_rtau', action='store_true',
                         help='Also output R_tau correlation matrix for plugin_cor')
+    parser.add_argument('--cov-dtype', dest='cov_dtype', choices=['int8', 'float32'],
+                        default='int8',
+                        help='Covariance storage dtype: int8 (with .cov.scale.gz sidecar) '
+                             'or float32 (legacy). Default: int8')
     
     args = parser.parse_args()
 
@@ -443,6 +449,21 @@ def main():
     # Parse taus
     taus = np.array([float(t) for t in args.taus.split(',')])
     T = len(taus)
+    if args.blocks is None:
+        args.blocks = max(T + 20, 64)
+        logger.info("Using auto --blocks=%d (max(taus + 20, 64))", args.blocks)
+
+    if args.blocks <= T:
+        parser.error(
+            f"--blocks ({args.blocks}) must be greater than number of taus ({T}). "
+            "Increase --blocks or reduce --taus."
+        )
+    if args.blocks < T + 20:
+        logger.warning(
+            "--blocks=%d is only slightly above taus=%d; covariance may be noisy. "
+            "Consider --blocks >= taus + 20.",
+            args.blocks, T
+        )
     
     log_mem(f"Starting FungWas Stage 1 (taus={T}, blocks={args.blocks})")
     logger.info("Note: For Stage 2, consider mean-centering non-intercept columns of your W matrix to reduce collinearity.")
@@ -518,6 +539,8 @@ def main():
 
     out_tsv_list = [f"{prefix}.stage1.tsv.gz" for prefix in out_prefixes]
     out_cov_list = [f"{prefix}.cov.gz" for prefix in out_prefixes]
+    out_cov_scale_list = [f"{prefix}.cov.scale.gz" for prefix in out_prefixes]
+    out_cov_meta_list = [f"{prefix}.cov.meta.json" for prefix in out_prefixes]
     out_cov_ids_list = [f"{prefix}.cov.ids.tsv.gz" for prefix in out_prefixes]
     
     # Column headers
@@ -546,6 +569,10 @@ def main():
     with ExitStack() as stack:
         f_tsv_list = [stack.enter_context(gzip.open(path, 'wt')) for path in out_tsv_list]
         f_cov_list = [stack.enter_context(gzip.open(path, 'wb')) for path in out_cov_list]
+        f_cov_scale_list = (
+            [stack.enter_context(gzip.open(path, 'wb')) for path in out_cov_scale_list]
+            if args.cov_dtype == 'int8' else [None for _ in out_cov_scale_list]
+        )
         f_cov_ids_list = [stack.enter_context(gzip.open(path, 'wt')) for path in out_cov_ids_list]
         for f_tsv in f_tsv_list:
             f_tsv.write('\t'.join(cols) + '\n')
@@ -596,6 +623,7 @@ def main():
                     f_tsv = f_tsv_list[p_idx]
                     f_cov = f_cov_list[p_idx]
                     f_cov_ids = f_cov_ids_list[p_idx]
+                    f_cov_scale = f_cov_scale_list[p_idx]
                     all_betas = all_betas_list[p_idx]
 
                     for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
@@ -610,7 +638,15 @@ def main():
                         f_tsv.write('\t'.join(map(str, row)) + '\n')
 
                         cov_upper = Sigma[np.triu_indices(T)]
-                        f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+                        if args.cov_dtype == 'int8':
+                            scale = np.max(np.abs(cov_upper)) / 127.0
+                            if not np.isfinite(scale) or scale <= 0:
+                                scale = 1.0
+                            cov_q = np.clip(np.rint(cov_upper / scale), -127, 127).astype(np.int8)
+                            f_cov.write(cov_q.tobytes(order='C'))
+                            f_cov_scale.write(struct.pack('f', float(scale)))
+                        else:
+                            f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
                         f_cov_ids.write(f"{info[0]}\n")
 
                         if args.output_rtau:
@@ -646,6 +682,7 @@ def main():
                 f_tsv = f_tsv_list[p_idx]
                 f_cov = f_cov_list[p_idx]
                 f_cov_ids = f_cov_ids_list[p_idx]
+                f_cov_scale = f_cov_scale_list[p_idx]
                 all_betas = all_betas_list[p_idx]
 
                 for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
@@ -660,7 +697,15 @@ def main():
                     f_tsv.write('\t'.join(map(str, row)) + '\n')
 
                     cov_upper = Sigma[np.triu_indices(T)]
-                    f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+                    if args.cov_dtype == 'int8':
+                        scale = np.max(np.abs(cov_upper)) / 127.0
+                        if not np.isfinite(scale) or scale <= 0:
+                            scale = 1.0
+                        cov_q = np.clip(np.rint(cov_upper / scale), -127, 127).astype(np.int8)
+                        f_cov.write(cov_q.tobytes(order='C'))
+                        f_cov_scale.write(struct.pack('f', float(scale)))
+                    else:
+                        f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
                     f_cov_ids.write(f"{info[0]}\n")
 
                     if args.output_rtau:
@@ -686,6 +731,15 @@ def main():
             logger.info(f"Wrote R_tau: {rtau_file}")
     
     elapsed = time.time() - t_start
+    for meta_path in out_cov_meta_list:
+        with open(meta_path, 'w') as f:
+            json.dump({
+                "cov_dtype": args.cov_dtype,
+                "n_taus": int(T),
+                "n_cov_elements": int(n_cov_elements),
+                "record_bytes": int(n_cov_elements if args.cov_dtype == 'int8' else n_cov_elements * 4),
+                "scale_file": bool(args.cov_dtype == 'int8')
+            }, f, indent=2)
     log_mem(
         f"Batch compute time: {total_compute:.1f}s, write time: {total_write:.1f}s, "
         f"batch total: {time.perf_counter() - t_batches:.1f}s"

@@ -36,14 +36,28 @@ upper_to_mat <- function(upper, T) {
 
 mean_cov_from_cov_gz <- function(cov_path, T, max_snps = 20000L) {
   n_elem <- as.integer(T * (T + 1) / 2)
+  scale_path <- sub("\\.cov\\.gz$", ".cov.scale.gz", cov_path)
   con <- gzfile(cov_path, open = "rb")
   on.exit(close(con))
+  con_scale <- NULL
+  if (file.exists(scale_path)) {
+    con_scale <- gzfile(scale_path, open = "rb")
+    on.exit(close(con_scale), add = TRUE)
+  }
 
   sum_upper <- numeric(n_elem)
   n_read <- 0L
   repeat {
-    vec <- readBin(con, what = "numeric", n = n_elem, size = 4, endian = "little")
-    if (length(vec) != n_elem) break
+    if (is.null(con_scale)) {
+      vec <- readBin(con, what = "numeric", n = n_elem, size = 4, endian = "little")
+      if (length(vec) != n_elem) break
+    } else {
+      vec_q <- readBin(con, what = "integer", n = n_elem, size = 1, signed = TRUE, endian = "little")
+      if (length(vec_q) != n_elem) break
+      sc <- readBin(con_scale, what = "numeric", n = 1L, size = 4, endian = "little")
+      if (length(sc) != 1L) stop("Scale file ended early: ", scale_path)
+      vec <- as.numeric(vec_q) * sc
+    }
     sum_upper <- sum_upper + vec
     n_read <- n_read + 1L
     if (n_read >= max_snps) break

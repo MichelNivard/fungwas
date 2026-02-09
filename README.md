@@ -118,6 +118,8 @@ fungwas-stage1 \
     --threads 16
 ```
 *Produces `results/chr22.stage1.tsv.gz` (estimates) and `results/chr22.cov.gz` (covariance).*
+By default, Stage 1 writes covariance in compact int8 format with sidecar
+`results/chr22.cov.scale.gz` (dequantization scales).
 
 See [Stage 1 Documentation](stage1/README.md) for full CLI options.
 
@@ -184,7 +186,7 @@ See [SLURM Templates](docs/slurm_templates/) for example submission scripts.
 
 ### Standard Error Modes
 Stage 2 supports different methods for SE calculation (`param_gwas` argument `se_mode`):
--   `tau_cov`: **Recommended**. Uses the exact per-SNP covariance matrix computed in Stage 1. Most accurate but requires the `.cov.gz` file.
+-   `tau_cov`: **Recommended**. Uses the exact per-SNP covariance matrix computed in Stage 1. Most accurate and works with both legacy float32 `.cov.gz` and int8 `.cov.gz` + `.cov.scale.gz`.
 -   `plugin_cor`: Uses a single correlation matrix for all SNPs (from null distribution). Faster, good for initial scans.
 -   `diagonal`: Assumes independence between quantiles. Least accurate, not recommended for final results.
 

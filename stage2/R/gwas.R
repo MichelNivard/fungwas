@@ -346,7 +346,8 @@ if (se_mode == "diagonal") {
 #' @param se_mode SE computation mode (see \code{param_gwas})
 #' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode. If a
 #'   sidecar file with suffix .cov.ids.tsv.gz exists, it is used to validate
-#'   row alignment against the Stage 1 file.
+#'   row alignment against the Stage 1 file. If .cov.scale.gz is present, the
+#'   covariance payload is read as int8 and dequantized using per-SNP scales.
 #' @param unsafe_skip_cov_ids If TRUE, allow tau_cov to proceed without a
 #'   covariate IDs sidecar (not recommended).
 #' @param rtau_file Path to R_tau correlation matrix (.Rtau.tsv) for plugin_cor mode
@@ -374,6 +375,101 @@ if (se_mode == "diagonal") {
          " stage1=", stage1_dt$snp_id[i])
   }
   invisible(TRUE)
+}
+
+.cov_scale_file <- function(cov_file) {
+  sub("\\.cov\\.gz$", ".cov.scale.gz", cov_file)
+}
+
+.read_tau_cov_data <- function(cov_file, n_taus, n_snps) {
+  n_cov_elements <- as.integer(n_taus * (n_taus + 1) / 2)
+  scale_file <- .cov_scale_file(cov_file)
+
+  if (file.exists(scale_file)) {
+    con_cov <- gzfile(cov_file, "rb")
+    on.exit(close(con_cov), add = TRUE)
+    cov_q <- readBin(
+      con_cov,
+      what = "integer",
+      n = n_cov_elements * n_snps,
+      size = 1,
+      signed = TRUE,
+      endian = "little"
+    )
+    n_expect <- n_cov_elements * n_snps
+    if (length(cov_q) < n_expect) {
+      warning(
+        "Int8 covariance shorter than expected in ", cov_file, ": expected ",
+        n_expect, " bytes, got ", length(cov_q), ". Padding with NA.",
+        call. = FALSE
+      )
+      cov_q <- c(cov_q, rep(NA_integer_, n_expect - length(cov_q)))
+    } else if (length(cov_q) > n_expect) {
+      warning(
+        "Int8 covariance longer than expected in ", cov_file, ": expected ",
+        n_expect, " bytes, got ", length(cov_q), ". Truncating extra bytes.",
+        call. = FALSE
+      )
+      cov_q <- cov_q[seq_len(n_expect)]
+    }
+
+    con_scale <- gzfile(scale_file, "rb")
+    on.exit(close(con_scale), add = TRUE)
+    scales <- readBin(
+      con_scale,
+      what = "numeric",
+      n = n_snps,
+      size = 4,
+      endian = "little"
+    )
+    if (length(scales) < n_snps) {
+      warning(
+        "Scale file shorter than expected in ", scale_file, ": expected ",
+        n_snps, " records, got ", length(scales), ". Padding with NA.",
+        call. = FALSE
+      )
+      scales <- c(scales, rep(NA_real_, n_snps - length(scales)))
+    } else if (length(scales) > n_snps) {
+      warning(
+        "Scale file longer than expected in ", scale_file, ": expected ",
+        n_snps, " records, got ", length(scales), ". Truncating extra records.",
+        call. = FALSE
+      )
+      scales <- scales[seq_len(n_snps)]
+    }
+
+    cov_vec <- as.numeric(cov_q) * rep(scales, each = n_cov_elements)
+    offsets <- seq(0, by = n_cov_elements * 4, length.out = n_snps)
+    return(list(cov_vec = cov_vec, offsets = offsets))
+  }
+
+  con <- gzfile(cov_file, "rb")
+  on.exit(close(con), add = TRUE)
+  cov_vec <- readBin(
+    con,
+    what = "numeric",
+    n = n_cov_elements * n_snps,
+    size = 4,
+    endian = "little"
+  )
+  n_expect <- n_cov_elements * n_snps
+  if (length(cov_vec) < n_expect) {
+    warning(
+      "Float32 covariance shorter than expected in ", cov_file, ": expected ",
+      n_expect, " values, got ", length(cov_vec), ". Padding with NA.",
+      call. = FALSE
+    )
+    cov_vec <- c(cov_vec, rep(NA_real_, n_expect - length(cov_vec)))
+  } else if (length(cov_vec) > n_expect) {
+    warning(
+      "Float32 covariance longer than expected in ", cov_file, ": expected ",
+      n_expect, " values, got ", length(cov_vec), ". Truncating extra values.",
+      call. = FALSE
+    )
+    cov_vec <- cov_vec[seq_len(n_expect)]
+  }
+  offsets <- seq(0, by = n_cov_elements * 4, length.out = n_snps)
+  list(cov_vec = cov_vec, offsets = offsets)
 }
 
 #' 
@@ -438,18 +534,11 @@ param_gwas_from_file <- function(
       .validate_cov_ids(stage1_dt, cov_ids_file)
     }
     
-    # Read binary covariance
-    con <- gzfile(cov_file, "rb")
-    cov_vec <- readBin(con, "numeric", n = 2e9, size = 4)
-    close(con)
-    
-    # Offsets: assume sequential storage
-    # T*(T+1)/2 floats per SNP, 4 bytes each
-    n_cov_elements <- length(taus) * (length(taus) + 1) / 2
-    n_snps <- nrow(stage1_dt)
-    offsets <- seq(0, by = n_cov_elements * 4, length.out = n_snps)
-    
-    cov_data <- list(cov_vec = cov_vec, offsets = offsets)
+    cov_data <- .read_tau_cov_data(
+      cov_file = cov_file,
+      n_taus = length(taus),
+      n_snps = nrow(stage1_dt)
+    )
   }
   
   # Load R_tau if needed
@@ -500,7 +589,9 @@ param_gwas_from_file <- function(
 #' @param W_list List of weight matrices (each T x K).
 #' @param N Sample size used for BIC.
 #' @param se_mode One of \code{"tau_cov"} or \code{"dwls"} (or \code{"diagonal"}).
-#' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode.
+#' @param cov_file Path to covariance file (.cov.gz) for tau_cov mode. If
+#'   .cov.scale.gz is present, the covariance payload is read as int8 and
+#'   dequantized using per-SNP scales.
 #' @param unsafe_skip_cov_ids If TRUE, allow tau_cov to proceed without a
 #'   covariate IDs sidecar (not recommended).
 #' @param n_threads Number of OpenMP threads.
@@ -562,15 +653,11 @@ param_gwas_multi_from_file <- function(
       .validate_cov_ids(stage1_dt, cov_ids_file)
     }
 
-    con <- gzfile(cov_file, "rb")
-    cov_vec <- readBin(con, "numeric", n = 2e9, size = 4)
-    close(con)
-
-    n_cov_elements <- length(taus) * (length(taus) + 1) / 2
-    n_snps <- nrow(stage1_dt)
-    offsets <- seq(0, by = n_cov_elements * 4, length.out = n_snps)
-
-    cov_data <- list(cov_vec = cov_vec, offsets = offsets)
+    cov_data <- .read_tau_cov_data(
+      cov_file = cov_file,
+      n_taus = length(taus),
+      n_snps = nrow(stage1_dt)
+    )
   }
 
   param_gwas_multi(

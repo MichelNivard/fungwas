@@ -313,7 +313,7 @@ def compute_covariance_from_blocks(stats: np.ndarray, n_blocks: int) -> Tuple[np
 def run_stage1(G: np.ndarray, Y: np.ndarray, 
                taus: np.ndarray,
                covariates: Optional[np.ndarray] = None,
-               n_blocks: int = 25,
+               n_blocks: Optional[int] = None,
                seed: int = 42,
                n_threads: int = 1) -> dict:
     """
@@ -329,8 +329,8 @@ def run_stage1(G: np.ndarray, Y: np.ndarray,
         Quantile levels to analyze
     covariates : array (N, K), optional
         Covariate matrix (intercept added automatically)
-    n_blocks : int
-        Number of jackknife blocks
+    n_blocks : int, optional
+        Number of jackknife blocks. If None, uses max(T + 20, 64).
     seed : int
         Random seed for block assignment
     n_threads : int
@@ -347,6 +347,22 @@ def run_stage1(G: np.ndarray, Y: np.ndarray,
     """
     N, M = G.shape
     T = len(taus)
+    if n_blocks is None:
+        n_blocks = max(T + 20, 64)
+
+    # Jackknife covariance rank is bounded by (n_blocks - 1). Enforce
+    # n_blocks > n_taus for stable tau-covariance estimation in Stage 2.
+    if n_blocks <= T:
+        raise ValueError(
+            f"n_blocks ({n_blocks}) must be greater than number of taus ({T}). "
+            "Increase n_blocks or reduce taus."
+        )
+    if n_blocks < T + 20:
+        logger.warning(
+            "n_blocks=%d is only slightly above n_taus=%d; covariance may be noisy. "
+            "Consider n_blocks >= n_taus + 20 for better stability.",
+            n_blocks, T
+        )
     
     # Compute RIF
     logger.info(f"Computing RIF matrix for {T} taus...")
