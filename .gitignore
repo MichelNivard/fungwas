@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+*.egg-info/
+
+stage1/fungwas_stage1/_stage1_cpp.cpython-310-*.so
+stage1/fungwas_stage1/_stage1_cpp.cpython-311-*.so
+stage1/fungwas_stage1/_stage1_cpp.cpython-312-*.so
+stage1/fungwas_stage1/_stage1_cpp.cpython-313-*.so
+stage1/fungwas_stage1/_stage1_cpp.cpython-314-*.so
