@@ -20,11 +20,13 @@ python setup.py build_ext --inplace
 pip install -e .
 ```
 
-**Important:** If you see `C++ extension not found, using numpy fallback (slower)` when running, the C++ extension is not built. Build it with:
+**Important:** Stage 1 now fails fast if the C++ extension is not available. Build it with:
 ```bash
 cd stage1
 python setup.py build_ext --inplace
 ```
+
+The NumPy fallback is only available with the explicit CLI flag `--allow-numpy-fallback`, and is intended for debugging only. It can be ~1000x slower than the compiled path.
 
 ### Conda environment notes (BGEN support)
 

@@ -19,6 +19,7 @@ import gzip
 import json
 import logging
 import os
+import re
 import struct
 import sys
 import time
@@ -34,6 +35,8 @@ from .core import (
     compute_block_scores_multi,
     compute_covariance_from_blocks,
     resolve_covar_cols,
+    set_numpy_fallback_allowed,
+    require_cpp_extension,
 )
 
 logging.basicConfig(
@@ -85,6 +88,187 @@ def parse_list_arg(values: Optional[list[str]]) -> Optional[list[str]]:
     return parts or None
 
 
+def normalize_chr_label(chrom) -> str:
+    """Normalize chromosome labels to plain autosome-style strings."""
+    chrom_str = str(chrom).strip()
+    chrom_str = re.sub(r'^(chr|CHR)', '', chrom_str)
+    return chrom_str
+
+
+def read_keep_ids(keep_file: str) -> set[str]:
+    """Load a sample keep list using the first whitespace-delimited column."""
+    keep_set = set()
+    with open(keep_file) as f:
+        for line in f:
+            parts = line.strip().split()
+            if parts:
+                keep_set.add(parts[0])
+    return keep_set
+
+
+def build_sample_aliases(fid: str, iid: Optional[str]) -> list[str]:
+    """Build plausible sample identifiers seen across phenotype/BGEN/REGENIE files."""
+    aliases = []
+    if fid:
+        aliases.append(fid)
+    if iid and iid != fid:
+        aliases.append(iid)
+    if fid and iid:
+        aliases.extend([
+            f"{fid}_{iid}",
+            f"{fid} {iid}",
+            f"{fid}:{iid}",
+        ])
+    return aliases
+
+
+def resolve_sample_column(sample_lookup: dict[str, int], aliases: list[str]) -> Optional[int]:
+    """Resolve the first matching sample alias in a LOCO header lookup."""
+    for alias in aliases:
+        if alias in sample_lookup:
+            return sample_lookup[alias]
+    return None
+
+
+def resolve_loco_files(loco_path: str, pheno_cols: list[str]) -> dict[str, str]:
+    """
+    Resolve REGENIE LOCO inputs to a phenotype->.loco path mapping.
+
+    Supports either a direct `.loco` file or a REGENIE `_pred.list` master file.
+    """
+    path = Path(loco_path)
+    if path.suffix == '.loco':
+        if len(pheno_cols) != 1:
+            raise ValueError(
+                "--loco-preds points to a single .loco file but multiple phenotypes were requested. "
+                "Provide the REGENIE *_pred.list file instead."
+            )
+        return {pheno_cols[0]: str(path)}
+
+    entries: list[list[str]] = []
+    with open(path) as f:
+        for line in f:
+            parts = line.strip().split()
+            if parts:
+                entries.append(parts)
+
+    loco_files = [parts[-1] for parts in entries if parts[-1].endswith('.loco')]
+    if not loco_files:
+        raise ValueError(f"No .loco files found in {loco_path}")
+
+    if len(pheno_cols) == 1 and len(loco_files) == 1:
+        return {pheno_cols[0]: loco_files[0]}
+
+    mapping = {}
+    remaining = set(pheno_cols)
+
+    for parts in entries:
+        loco_file = parts[-1]
+        if not loco_file.endswith('.loco'):
+            continue
+        joined = ' '.join(parts[:-1] + [Path(loco_file).stem])
+        for pheno in list(remaining):
+            if pheno in joined:
+                mapping[pheno] = loco_file
+                remaining.remove(pheno)
+                break
+
+    if remaining:
+        unresolved = sorted(remaining)
+        unassigned = [f for f in loco_files if f not in mapping.values()]
+        if len(unassigned) == len(unresolved):
+            for pheno, loco_file in zip(unresolved, unassigned):
+                mapping[pheno] = loco_file
+        else:
+            raise ValueError(
+                f"Could not map LOCO files in {loco_path} to phenotypes {unresolved}. "
+                "Use a pred.list whose entries include phenotype names or pass a single .loco for one phenotype."
+            )
+
+    return mapping
+
+
+def load_loco_predictions_for_file(loco_file: str,
+                                   sample_aliases: list[list[str]]) -> tuple[dict[str, np.ndarray], np.ndarray]:
+    """
+    Load per-chromosome REGENIE LOCO predictions aligned to the phenotype sample order.
+    """
+    with open(loco_file) as f:
+        header = f.readline().strip().split()
+        if not header or len(header) < 2:
+            raise ValueError(f"Malformed LOCO header in {loco_file}")
+        sample_lookup = {sample_id: idx for idx, sample_id in enumerate(header[1:])}
+
+        matched_cols = []
+        for idx, aliases in enumerate(sample_aliases):
+            col_idx = resolve_sample_column(sample_lookup, aliases)
+            matched_cols.append(col_idx)
+        valid_mask = np.array([idx is not None for idx in matched_cols], dtype=bool)
+        missing = np.where(~valid_mask)[0]
+        matched_cols_arr = np.array(
+            [idx for idx in matched_cols if idx is not None],
+            dtype=np.int64
+        )
+
+        if matched_cols_arr.size == 0:
+            raise ValueError(f"No phenotype samples were found in LOCO file {loco_file}")
+        if missing.size > 0:
+            preview = ', '.join(sample_aliases[i][0] if sample_aliases[i] else f"sample_{i}" for i in missing[:5])
+            logger.warning(
+                "%d phenotype samples are absent from LOCO file %s and will be dropped. Examples: %s",
+                int(missing.size), loco_file, preview
+            )
+
+        chr_to_pred = {}
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 2:
+                continue
+            chrom = normalize_chr_label(parts[0])
+            values = np.asarray(parts[1:], dtype=np.float64)
+            if values.shape[0] != len(header) - 1:
+                raise ValueError(
+                    f"Chromosome {parts[0]} in {loco_file} has {values.shape[0]} predictions, "
+                    f"expected {len(header) - 1}"
+                )
+            chr_to_pred[chrom] = values[matched_cols_arr]
+
+    if not chr_to_pred:
+        raise ValueError(f"No chromosome predictions found in {loco_file}")
+    return chr_to_pred, valid_mask
+
+
+def load_loco_predictions(loco_path: str,
+                          pheno_cols: list[str],
+                          sample_aliases: list[list[str]]) -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray]:
+    """Load aligned LOCO predictions for one or more phenotypes and return the shared valid sample mask."""
+    loco_files = resolve_loco_files(loco_path, pheno_cols)
+    raw_predictions = {}
+    valid_masks = {}
+    combined_valid_mask = np.ones(len(sample_aliases), dtype=bool)
+    for pheno in pheno_cols:
+        loco_file = loco_files[pheno]
+        log_mem(f"Loading LOCO predictions for {pheno} from {loco_file}")
+        pheno_preds, valid_mask = load_loco_predictions_for_file(loco_file, sample_aliases)
+        raw_predictions[pheno] = pheno_preds
+        valid_masks[pheno] = valid_mask
+        combined_valid_mask &= valid_mask
+
+    if not np.any(combined_valid_mask):
+        raise ValueError("No samples remain after intersecting phenotype rows with LOCO predictions.")
+
+    predictions = {}
+    for pheno in pheno_cols:
+        pheno_valid_idx = np.where(valid_masks[pheno])[0]
+        keep_positions = np.nonzero(combined_valid_mask[pheno_valid_idx])[0]
+        predictions[pheno] = {
+            chrom: values[keep_positions]
+            for chrom, values in raw_predictions[pheno].items()
+        }
+
+    return predictions, combined_valid_mask
+
+
 def load_snps_list(snp_file: str) -> List[str]:
     """Load list of SNP rsIDs from file (one per line)."""
     snps = []
@@ -96,120 +280,17 @@ def load_snps_list(snp_file: str) -> List[str]:
     return snps
 
 
-def load_phenotypes(pheno_file: str, pheno_col: str, covar_file: Optional[str],
-                    taus: np.ndarray, keep_file: Optional[str] = None,
-                    covar_cols: Optional[list[str]] = None) -> tuple:
-    """
-    Load raw phenotype and covariates, compute RIF, and residualize.
-    """
-    # Load keep list if provided
+def load_analysis_inputs(pheno_file: str, pheno_cols: list[str], covar_file: Optional[str],
+                         keep_file: Optional[str] = None,
+                         covar_cols: Optional[list[str]] = None) -> tuple:
+    """Load phenotypes/covariates and return aligned raw inputs for analysis."""
     keep_set = None
     if keep_file:
         log_mem(f"Loading sample keep list from {keep_file}")
-        keep_set = set()
-        with open(keep_file) as f:
-            for line in f:
-                parts = line.strip().split()
-                if parts:
-                    keep_set.add(parts[0])
-        log_mem(f"Keeping {len(keep_set)} samples")
-    
-    log_mem(f"Loading phenotypes from {pheno_file}")
-    
-    pheno_data = read_table_whitespace(pheno_file)
-    
-    # Check phenotype column exists
-    if pheno_col not in pheno_data[0]:
-        available = [c for c in pheno_data[0].keys() if c not in ['FID', 'IID']]
-        raise ValueError(f"Phenotype column '{pheno_col}' not found. Available: {available}")
-    
-    # Load covariates if provided
-    if covar_file:
-        log_mem(f"Loading covariates from {covar_file}")
-        covar_data = read_table_whitespace(covar_file)
-        covar_map = {r['FID']: r for r in covar_data}
-        available_covar_cols = [c for c in covar_data[0].keys() if c not in ['FID', 'IID']]
-        covar_cols = resolve_covar_cols(covar_cols, available_covar_cols)
-    elif covar_cols is not None:
-        raise ValueError("covar_cols provided but no covariate file (--covar) was supplied.")
-    else:
-        covar_map = {}
-        covar_cols = []
-    
-    # Extract phenotype and covariates
-    sample_ids = []
-    Y_raw = []
-    X_list = []
-    
-    for row in pheno_data:
-        fid = row['FID']
-        
-        # Filter by keep list if provided
-        if keep_set is not None and fid not in keep_set:
-            continue
-        
-        try:
-            y_val = float(row[pheno_col]) if row[pheno_col] != 'NA' else np.nan
-            
-            if np.isnan(y_val):
-                continue
-            
-            if covar_file:
-                if fid not in covar_map:
-                    continue
-                c_row = covar_map[fid]
-                x_vals = [float(c_row[c]) if c_row[c] != 'NA' else np.nan for c in covar_cols]
-                if np.any(np.isnan(x_vals)):
-                    continue
-                X_list.append(x_vals)
-            
-            sample_ids.append(fid)
-            Y_raw.append(y_val)
-            
-        except (ValueError, KeyError):
-            continue
-    
-    Y = np.array(Y_raw)
-    N = len(Y)
-    log_mem(f"Loaded {N} samples with valid phenotype")
-    
-    # Compute RIF from raw phenotype
-    log_mem(f"Computing RIF matrix for {len(taus)} taus...")
-    RIF, q_tau, fhat = compute_rif(Y, taus)
-    
-    # Setup covariate matrix
-    if covar_file:
-        X = np.column_stack([np.ones(N), np.array(X_list)])
-    else:
-        X = np.ones((N, 1))
-    
-    # Residualize RIF on covariates
-    log_mem(f"Residualizing RIF on {X.shape[1]} covariates...")
-    Q, _ = np.linalg.qr(X)
-    RIF_resid = RIF - Q @ (Q.T @ RIF)
-    
-    return sample_ids, RIF_resid, Q, q_tau
-
-
-def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Optional[str],
-                          taus: np.ndarray, keep_file: Optional[str] = None,
-                          covar_cols: Optional[list[str]] = None) -> tuple:
-    """
-    Load multiple phenotypes and compute residualized RIF matrices.
-    """
-    keep_set = None
-    if keep_file:
-        log_mem(f"Loading sample keep list from {keep_file}")
-        keep_set = set()
-        with open(keep_file) as f:
-            for line in f:
-                parts = line.strip().split()
-                if parts:
-                    keep_set.add(parts[0])
+        keep_set = read_keep_ids(keep_file)
         log_mem(f"Keeping {len(keep_set)} samples")
 
     log_mem(f"Loading phenotypes from {pheno_file}")
-
     pheno_data = read_table_whitespace(pheno_file)
 
     for col in pheno_cols:
@@ -230,11 +311,13 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
         covar_cols = []
 
     sample_ids = []
+    sample_aliases = []
     y_values = {col: [] for col in pheno_cols}
     X_list = []
 
     for row in pheno_data:
         fid = row['FID']
+        iid = row.get('IID', fid)
         if keep_set is not None and fid not in keep_set:
             continue
 
@@ -256,37 +339,41 @@ def load_phenotypes_multi(pheno_file: str, pheno_cols: list[str], covar_file: Op
                 X_list.append(x_vals)
 
             sample_ids.append(fid)
+            sample_aliases.append(build_sample_aliases(fid, iid))
             for col, val in zip(pheno_cols, pheno_vals):
                 y_values[col].append(val)
-
         except (ValueError, KeyError):
             continue
 
-    N = len(sample_ids)
-    log_mem(f"Loaded {N} samples with valid phenotypes")
+    n_samples = len(sample_ids)
+    log_mem(f"Loaded {n_samples} samples with valid phenotypes")
 
     if covar_file:
-        X = np.column_stack([np.ones(N), np.array(X_list)])
+        X = np.column_stack([np.ones(n_samples), np.array(X_list)])
     else:
-        X = np.ones((N, 1))
+        X = np.ones((n_samples, 1))
 
+    return sample_ids, sample_aliases, y_values, X
+
+
+def build_rif_residuals(y_values: dict[str, list[float] | np.ndarray], pheno_cols: list[str],
+                        X: np.ndarray, taus: np.ndarray) -> tuple[list[np.ndarray], np.ndarray, list[np.ndarray]]:
+    """Compute residualized RIF matrices for one or more phenotypes."""
     log_mem(f"Residualizing phenotypes on {X.shape[1]} covariates...")
     Q, _ = np.linalg.qr(X)
 
-    RIF_resid_list = []
+    rif_resid_list = []
     q_tau_list = []
-
     for col in pheno_cols:
         log_mem(f"Computing RIF matrix for {col}...")
         t_rif = time.perf_counter()
-        Y = np.array(y_values[col])
-        RIF, q_tau, _ = compute_rif(Y, taus)
+        y = np.asarray(y_values[col], dtype=np.float64)
+        rif, q_tau, _ = compute_rif(y, taus)
         log_mem(f"RIF build for {col}: {time.perf_counter() - t_rif:.2f}s")
-        RIF_resid = RIF - Q @ (Q.T @ RIF)
-        RIF_resid_list.append(RIF_resid)
+        rif_resid_list.append(rif - Q @ (Q.T @ rif))
         q_tau_list.append(q_tau)
 
-    return sample_ids, RIF_resid_list, Q, q_tau_list
+    return rif_resid_list, Q, q_tau_list
 
 
 class VariantGenerator:
@@ -385,6 +472,64 @@ def extract_dosage(variant, bgen_indices: Optional[np.ndarray] = None):
     return dosages
 
 
+def write_stats_batch(stats_list, batch_info, args, f_tsv_list, f_cov_list, f_cov_ids_list,
+                      f_cov_scale_list, all_betas_list, n_cov_elements, n_taus):
+    """Write one processed batch to the stage1 outputs."""
+    for p_idx, stats in enumerate(stats_list):
+        f_tsv = f_tsv_list[p_idx]
+        f_cov = f_cov_list[p_idx]
+        f_cov_ids = f_cov_ids_list[p_idx]
+        f_cov_scale = f_cov_scale_list[p_idx]
+        all_betas = all_betas_list[p_idx]
+
+        for snp_stats, info in zip(stats, batch_info):
+            if np.isnan(snp_stats[0, 0]):
+                continue
+
+            beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
+
+            row = list(info)
+            for b, s in zip(beta, se):
+                row.extend([f'{b:.6g}', f'{s:.6g}'])
+            f_tsv.write('\t'.join(map(str, row)) + '\n')
+
+            cov_upper = Sigma[np.triu_indices(n_taus)]
+            if args.cov_dtype == 'int8':
+                scale = np.max(np.abs(cov_upper)) / 127.0
+                if not np.isfinite(scale) or scale <= 0:
+                    scale = 1.0
+                cov_q = np.clip(np.rint(cov_upper / scale), -127, 127).astype(np.int8)
+                f_cov.write(cov_q.tobytes(order='C'))
+                f_cov_scale.write(struct.pack('f', float(scale)))
+            else:
+                f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
+            f_cov_ids.write(f"{info[0]}\n")
+
+            if args.output_rtau:
+                all_betas.append(beta)
+
+
+def compute_chr_rif_residuals(pheno_cols: list[str], y_values_full: dict[str, np.ndarray],
+                              X_full: np.ndarray, taus: np.ndarray,
+                              loco_predictions: Optional[dict[str, dict[str, np.ndarray]]],
+                              chrom: Optional[str], valid_mask: np.ndarray) -> tuple[list[np.ndarray], np.ndarray, list[np.ndarray]]:
+    """Build residualized RIF matrices for a chromosome, optionally using LOCO-adjusted phenotypes."""
+    if loco_predictions is None:
+        y_values_chr = {col: y_values_full[col][valid_mask] for col in pheno_cols}
+    else:
+        chrom_key = normalize_chr_label(chrom)
+        y_values_chr = {}
+        for col in pheno_cols:
+            per_chr = loco_predictions[col]
+            if chrom_key not in per_chr:
+                raise ValueError(f"Chromosome {chrom_key} missing from LOCO predictions for phenotype '{col}'")
+            y_values_chr[col] = y_values_full[col] - per_chr[chrom_key]
+        y_values_chr = {col: y_values_chr[col][valid_mask] for col in pheno_cols}
+
+    rif_resid_list, q_chr, q_tau_list = build_rif_residuals(y_values_chr, pheno_cols, X_full[valid_mask], taus)
+    return rif_resid_list, q_chr, q_tau_list
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="FungWas Stage 1: Fast RIF quantile GWAS",
@@ -419,6 +564,8 @@ def main():
                         help='File with sample IDs to keep (one per line)')
     parser.add_argument('--loco-preds', dest='loco_preds', default=None,
                         help='REGENIE step1 LOCO predictions (for future use)')
+    parser.add_argument('--allow-numpy-fallback', action='store_true',
+                        help='Allow the uncompiled NumPy fallback. This can be ~1000x slower and is for debugging only.')
     
     # Algorithm parameters
     default_taus = ",".join([f"{t:.3f}" for t in np.linspace(0.02, 0.98, 45)])
@@ -442,6 +589,8 @@ def main():
                              'or float32 (legacy). Default: int8')
     
     args = parser.parse_args()
+    set_numpy_fallback_allowed(args.allow_numpy_fallback)
+    require_cpp_extension("fungwas-stage1 CLI")
 
     if not args.pheno_col and not args.pheno_cols:
         parser.error("Provide --pheno-col or --pheno-cols")
@@ -480,19 +629,24 @@ def main():
     if not use_multi and args.pheno_cols:
         log_mem("Single phenotype provided via --pheno-cols; using single-phenotype path.")
 
-    if not use_multi:
-        sample_ids, RIF_resid, Q, q_tau = load_phenotypes(
-            args.pheno, pheno_cols[0], args.covar, taus, keep_file=args.keep,
-            covar_cols=covar_cols
-        )
-        RIF_resid_list = [RIF_resid]
-        q_tau_list = [q_tau]
-    else:
+    if use_multi:
         log_mem(f"Loading {len(pheno_cols)} phenotypes in one pass...")
-        sample_ids, RIF_resid_list, Q, q_tau_list = load_phenotypes_multi(
-            args.pheno, pheno_cols, args.covar, taus, keep_file=args.keep,
-            covar_cols=covar_cols
-        )
+    sample_ids, sample_aliases, y_values_raw, X_full = load_analysis_inputs(
+        args.pheno, pheno_cols, args.covar, keep_file=args.keep, covar_cols=covar_cols
+    )
+    y_values_full = {col: np.asarray(values, dtype=np.float64) for col, values in y_values_raw.items()}
+    loco_predictions = None
+    if args.loco_preds:
+        loco_predictions, loco_valid_mask = load_loco_predictions(args.loco_preds, pheno_cols, sample_aliases)
+        if not np.all(loco_valid_mask):
+            dropped = int((~loco_valid_mask).sum())
+            log_mem(f"Dropping {dropped} phenotype rows not present in LOCO predictions")
+            sample_ids = [sid for sid, keep in zip(sample_ids, loco_valid_mask) if keep]
+            sample_aliases = [aliases for aliases, keep in zip(sample_aliases, loco_valid_mask) if keep]
+            y_values_full = {col: values[loco_valid_mask] for col, values in y_values_full.items()}
+            X_full = X_full[loco_valid_mask]
+        log_mem("LOCO predictions loaded; RIFs will be recomputed per chromosome on Y - LOCO(chr)")
+    RIF_resid_list, Q, q_tau_list = build_rif_residuals(y_values_full, pheno_cols, X_full, taus)
     log_mem(f"Phenotype load time: {time.perf_counter() - t_load:.2f}s")
     N = len(sample_ids)
     
@@ -565,6 +719,7 @@ def main():
 
     total_compute = 0.0
     total_write = 0.0
+    active_chr = None
 
     with ExitStack() as stack:
         f_tsv_list = [stack.enter_context(gzip.open(path, 'wt')) for path in out_tsv_list]
@@ -585,6 +740,40 @@ def main():
             if len(variant.alleles) != 2:
                 skipped_non_biallelic += 1
                 continue
+
+            variant_chr = normalize_chr_label(variant.chrom)
+            if loco_predictions is not None and variant_chr != active_chr:
+                if idx_in_batch > 0:
+                    t_compute = time.perf_counter()
+                    if use_multi:
+                        stats_list = compute_block_scores_multi(
+                            G_batch[:, :idx_in_batch], RIF_resid_list, Q, block_ids, args.blocks,
+                            n_threads=args.threads
+                        )
+                    else:
+                        stats_list = [
+                            compute_block_scores(
+                                G_batch[:, :idx_in_batch], RIF_resid_list[0], Q, block_ids, args.blocks,
+                                n_threads=args.threads
+                            )
+                        ]
+                    total_compute += time.perf_counter() - t_compute
+
+                    t_write = time.perf_counter()
+                    write_stats_batch(
+                        stats_list, batch_info, args, f_tsv_list, f_cov_list, f_cov_ids_list,
+                        f_cov_scale_list, all_betas_list, n_cov_elements, T
+                    )
+                    total_write += time.perf_counter() - t_write
+                    total_snps += idx_in_batch
+                    idx_in_batch = 0
+                    batch_info = []
+
+                log_mem(f"Applying LOCO phenotype adjustment for chromosome {variant_chr}")
+                RIF_resid_list, Q, q_tau_list = compute_chr_rif_residuals(
+                    pheno_cols, y_values_full, X_full, taus, loco_predictions, variant_chr, valid_mask
+                )
+                active_chr = variant_chr
 
             # Extract dosage
             all_dosages = extract_dosage(variant)
@@ -619,38 +808,10 @@ def main():
                 total_compute += time.perf_counter() - t_compute
 
                 t_write = time.perf_counter()
-                for p_idx, stats in enumerate(stats_list):
-                    f_tsv = f_tsv_list[p_idx]
-                    f_cov = f_cov_list[p_idx]
-                    f_cov_ids = f_cov_ids_list[p_idx]
-                    f_cov_scale = f_cov_scale_list[p_idx]
-                    all_betas = all_betas_list[p_idx]
-
-                    for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
-                        if np.isnan(snp_stats[0, 0]):
-                            continue
-
-                        beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
-
-                        row = list(info)
-                        for b, s in zip(beta, se):
-                            row.extend([f'{b:.6g}', f'{s:.6g}'])
-                        f_tsv.write('\t'.join(map(str, row)) + '\n')
-
-                        cov_upper = Sigma[np.triu_indices(T)]
-                        if args.cov_dtype == 'int8':
-                            scale = np.max(np.abs(cov_upper)) / 127.0
-                            if not np.isfinite(scale) or scale <= 0:
-                                scale = 1.0
-                            cov_q = np.clip(np.rint(cov_upper / scale), -127, 127).astype(np.int8)
-                            f_cov.write(cov_q.tobytes(order='C'))
-                            f_cov_scale.write(struct.pack('f', float(scale)))
-                        else:
-                            f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
-                        f_cov_ids.write(f"{info[0]}\n")
-
-                        if args.output_rtau:
-                            all_betas.append(beta)
+                write_stats_batch(
+                    stats_list, batch_info, args, f_tsv_list, f_cov_list, f_cov_ids_list,
+                    f_cov_scale_list, all_betas_list, n_cov_elements, T
+                )
                 total_write += time.perf_counter() - t_write
                 
                 total_snps += args.batch_size
@@ -678,38 +839,10 @@ def main():
             total_compute += time.perf_counter() - t_compute
 
             t_write = time.perf_counter()
-            for p_idx, stats in enumerate(stats_list):
-                f_tsv = f_tsv_list[p_idx]
-                f_cov = f_cov_list[p_idx]
-                f_cov_ids = f_cov_ids_list[p_idx]
-                f_cov_scale = f_cov_scale_list[p_idx]
-                all_betas = all_betas_list[p_idx]
-
-                for i, (snp_stats, info) in enumerate(zip(stats, batch_info)):
-                    if np.isnan(snp_stats[0, 0]):
-                        continue
-
-                    beta, se, Sigma = compute_covariance_from_blocks(snp_stats, args.blocks)
-
-                    row = list(info)
-                    for b, s in zip(beta, se):
-                        row.extend([f'{b:.6g}', f'{s:.6g}'])
-                    f_tsv.write('\t'.join(map(str, row)) + '\n')
-
-                    cov_upper = Sigma[np.triu_indices(T)]
-                    if args.cov_dtype == 'int8':
-                        scale = np.max(np.abs(cov_upper)) / 127.0
-                        if not np.isfinite(scale) or scale <= 0:
-                            scale = 1.0
-                        cov_q = np.clip(np.rint(cov_upper / scale), -127, 127).astype(np.int8)
-                        f_cov.write(cov_q.tobytes(order='C'))
-                        f_cov_scale.write(struct.pack('f', float(scale)))
-                    else:
-                        f_cov.write(struct.pack(f'{n_cov_elements}f', *cov_upper))
-                    f_cov_ids.write(f"{info[0]}\n")
-
-                    if args.output_rtau:
-                        all_betas.append(beta)
+            write_stats_batch(
+                stats_list, batch_info, args, f_tsv_list, f_cov_list, f_cov_ids_list,
+                f_cov_scale_list, all_betas_list, n_cov_elements, T
+            )
             total_write += time.perf_counter() - t_write
             
             total_snps += idx_in_batch

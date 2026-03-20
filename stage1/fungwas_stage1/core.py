@@ -12,6 +12,11 @@ from typing import Tuple, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+ALLOW_NUMPY_FALLBACK = False
+NUMPY_FALLBACK_WARNING = (
+    "C++ extension is unavailable. Proceeding with the NumPy fallback only because it was "
+    "explicitly enabled. This path can be ~1000x slower and is not suitable for production GWAS."
+)
 
 # Try to import C++ extension
 try:
@@ -20,7 +25,26 @@ try:
     logger.info("C++ extension loaded successfully")
 except ImportError:
     HAVE_CPP = False
-    logger.warning("C++ extension not found, using numpy fallback (slower)")
+    logger.warning("C++ extension not found; Stage 1 will fail unless NumPy fallback is explicitly enabled.")
+
+
+def set_numpy_fallback_allowed(allow: bool):
+    """Control whether the very slow NumPy fallback may be used."""
+    global ALLOW_NUMPY_FALLBACK
+    ALLOW_NUMPY_FALLBACK = allow
+    if allow and not HAVE_CPP:
+        logger.warning(NUMPY_FALLBACK_WARNING)
+
+
+def require_cpp_extension(context: str = "Stage 1 computation"):
+    """Fail fast unless the compiled extension is present or fallback was explicitly allowed."""
+    if HAVE_CPP or ALLOW_NUMPY_FALLBACK:
+        return
+    raise RuntimeError(
+        f"{context} requires the compiled C++ extension, but it is not available. "
+        "Build it with `python setup.py build_ext --inplace` in `fungwas/stage1`, or rerun "
+        "the CLI with `--allow-numpy-fallback` if you intentionally want the ~1000x slower path."
+    )
 
 
 def resolve_covar_cols(requested: Optional[list[str]], available: list[str]) -> list[str]:
@@ -153,6 +177,7 @@ def compute_block_scores(G: np.ndarray, Y_resid: np.ndarray, Q: np.ndarray,
         [:, :, 0] = sum(G_resid^2) in block
         [:, :, 1:] = sum(G_resid * Y_resid) in block per tau
     """
+    require_cpp_extension("Block-score computation")
     if HAVE_CPP:
         return cpp_ext.stage1_block_scores(
             np.asfortranarray(G, dtype=np.float64),
@@ -199,6 +224,7 @@ def compute_block_scores_multi(G: np.ndarray, RIF_resid_list: list[np.ndarray], 
     if not isinstance(RIF_resid_list, (list, tuple)):
         raise ValueError("RIF_resid_list must be a list of arrays")
 
+    require_cpp_extension("Multi-phenotype block-score computation")
     if HAVE_CPP and hasattr(cpp_ext, 'stage1_block_scores_multi'):
         # Use optimized C++ multi-phenotype function
         # Processes all phenotypes in one pass over G for cache efficiency
@@ -315,7 +341,8 @@ def run_stage1(G: np.ndarray, Y: np.ndarray,
                covariates: Optional[np.ndarray] = None,
                n_blocks: Optional[int] = None,
                seed: int = 42,
-               n_threads: int = 1) -> dict:
+               n_threads: int = 1,
+               allow_numpy_fallback: bool = False) -> dict:
     """
     Run full Stage 1 quantile GWAS pipeline.
     
@@ -345,6 +372,9 @@ def run_stage1(G: np.ndarray, Y: np.ndarray,
         q_tau : array (T,) - empirical quantiles
         taus : array (T,) - tau levels used
     """
+    set_numpy_fallback_allowed(allow_numpy_fallback)
+    require_cpp_extension("run_stage1")
+
     N, M = G.shape
     T = len(taus)
     if n_blocks is None:
