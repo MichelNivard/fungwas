@@ -6,7 +6,7 @@ Python/C++ implementation for blazing-fast RIF quantile regression with jackknif
 
 ### Prerequisites
 
-Stage 1 requires a **C++ extension** for fast jackknife covariance computation. Without it, the numpy fallback is ~100x slower for large datasets.
+Stage 1 requires a **C++ extension** for fast jackknife covariance computation. Without it, the NumPy fallback is dramatically slower and should only be used for debugging.
 
 ```bash
 # With conda (recommended)
@@ -27,6 +27,26 @@ python setup.py build_ext --inplace
 ```
 
 The NumPy fallback is only available with the explicit CLI flag `--allow-numpy-fallback`, and is intended for debugging only. It can be ~1000x slower than the compiled path.
+
+When the fallback is enabled, Stage 1 emits a large warning at runtime stating that it is "SUPER SUPER SLOW" and should not be used for production GWAS.
+
+### Quick sanity check after build
+
+After building the extension, confirm that the package can see the compiled module:
+
+```bash
+python - <<'PY'
+from fungwas_stage1 import core
+print(core.HAVE_CPP)
+print(core.cpp_ext.__file__ if core.HAVE_CPP else "NO_EXTENSION")
+PY
+```
+
+For a quick local regression check:
+
+```bash
+pytest -q tests/test_loco.py
+```
 
 ### Conda environment notes (BGEN support)
 
@@ -116,6 +136,9 @@ fungwas-stage1 \
 
 If `--pheno-cols` contains a single phenotype, Stage 1 automatically falls back
 to the single-phenotype kernel to avoid extra overhead.
+
+When multiple phenotypes are supplied, the compiled path shares genotype
+residualization and block-score computation across phenotypes in one pass.
 
 ### BGEN Loading Strategy
 

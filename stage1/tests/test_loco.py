@@ -83,3 +83,59 @@ def test_cpp_requirement_fails_closed_when_extension_missing():
     finally:
         core.HAVE_CPP = original_have_cpp
         core.ALLOW_NUMPY_FALLBACK = original_allow
+
+
+def test_numpy_fallback_warning_is_explicit(caplog):
+    original_have_cpp = core.HAVE_CPP
+    original_allow = core.ALLOW_NUMPY_FALLBACK
+    try:
+        core.HAVE_CPP = False
+        with caplog.at_level("WARNING"):
+            core.set_numpy_fallback_allowed(True)
+        warning_text = "\n".join(record.message for record in caplog.records)
+        assert "NUMPY FALLBACK ENABLED FOR STAGE 1" in warning_text
+        assert "SUPER SUPER SLOW" in warning_text
+        assert "DO NOT USE THIS FOR PRODUCTION GWAS" in warning_text
+        assert "--allow-numpy-fallback" in warning_text
+    finally:
+        core.HAVE_CPP = original_have_cpp
+        core.ALLOW_NUMPY_FALLBACK = original_allow
+
+
+def test_multi_phenotype_block_scores_match_single_path_under_numpy_fallback():
+    original_have_cpp = core.HAVE_CPP
+    original_allow = core.ALLOW_NUMPY_FALLBACK
+    try:
+        core.HAVE_CPP = False
+        core.set_numpy_fallback_allowed(True)
+
+        rng = np.random.default_rng(123)
+        n_samples = 120
+        n_snps = 6
+        n_taus = 3
+        n_blocks = 8
+
+        g = rng.binomial(2, 0.3, size=(n_samples, n_snps)).astype(np.float64)
+        x = np.column_stack([np.ones(n_samples), rng.normal(size=(n_samples, 2))])
+        q, _ = np.linalg.qr(x)
+        block_ids = rng.integers(0, n_blocks, size=n_samples, dtype=np.int32)
+
+        rif_a = rng.normal(size=(n_samples, n_taus))
+        rif_b = rng.normal(size=(n_samples, n_taus))
+
+        multi_stats = core.compute_block_scores_multi(
+            g, [rif_a, rif_b], q, block_ids, n_blocks
+        )
+        single_stats_a = core.compute_block_scores(
+            g, rif_a, q, block_ids, n_blocks
+        )
+        single_stats_b = core.compute_block_scores(
+            g, rif_b, q, block_ids, n_blocks
+        )
+
+        assert len(multi_stats) == 2
+        np.testing.assert_allclose(multi_stats[0], single_stats_a)
+        np.testing.assert_allclose(multi_stats[1], single_stats_b)
+    finally:
+        core.HAVE_CPP = original_have_cpp
+        core.ALLOW_NUMPY_FALLBACK = original_allow

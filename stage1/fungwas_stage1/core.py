@@ -14,8 +14,12 @@ import logging
 logger = logging.getLogger(__name__)
 ALLOW_NUMPY_FALLBACK = False
 NUMPY_FALLBACK_WARNING = (
-    "C++ extension is unavailable. Proceeding with the NumPy fallback only because it was "
-    "explicitly enabled. This path can be ~1000x slower and is not suitable for production GWAS."
+    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+    "WARNING: NUMPY FALLBACK ENABLED FOR STAGE 1\n"
+    "WARNING: THIS PATH IS SUPER SUPER SLOW (~1000X SLOWER THAN THE C++ PATH)\n"
+    "WARNING: DO NOT USE THIS FOR PRODUCTION GWAS UNLESS YOU ARE DEBUGGING\n"
+    "WARNING: IT IS ONLY RUNNING BECAUSE --allow-numpy-fallback WAS EXPLICITLY SET\n"
+    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 )
 
 # Try to import C++ extension

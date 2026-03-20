@@ -1,0 +1,43 @@
+name: Stage1
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  stage1-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: fungwas-stage1
+          environment-file: stage1/environment.yml
+          auto-activate-base: false
+          auto-update-conda: true
+
+      - name: Build Stage 1 extension
+        working-directory: stage1
+        run: |
+          python setup.py build_ext --inplace
+          pip install -e .
+
+      - name: Verify compiled extension is available
+        working-directory: stage1
+        run: |
+          python - <<'PY'
+          from fungwas_stage1 import core
+          assert core.HAVE_CPP, "Expected compiled Stage 1 extension to be available in CI"
+          print(core.cpp_ext.__file__)
+          PY
+
+      - name: Run Stage 1 regression tests
+        working-directory: stage1
+        run: |
+          pytest -q tests/test_loco.py tests/test_jk_ols_equivalence.py tests/test_jk_equivalence.py
