@@ -89,10 +89,17 @@ def parse_list_arg(values: Optional[list[str]]) -> Optional[list[str]]:
 
 
 def normalize_chr_label(chrom) -> str:
-    """Normalize chromosome labels to plain autosome-style strings."""
+    """Normalize chromosome labels across BGEN/REGENIE conventions.
+
+    Numeric autosomes are canonicalized without leading zeroes so labels like
+    ``04``, ``4``, and ``chr04`` all resolve to ``4``. Non-numeric labels are
+    returned uppercase after removing any leading ``chr`` prefix.
+    """
     chrom_str = str(chrom).strip()
     chrom_str = re.sub(r'^(chr|CHR)', '', chrom_str)
-    return chrom_str
+    if chrom_str.isdigit():
+        return str(int(chrom_str))
+    return chrom_str.upper()
 
 
 def read_keep_ids(keep_file: str) -> set[str]:

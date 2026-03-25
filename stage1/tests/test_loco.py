@@ -4,7 +4,9 @@ import numpy as np
 
 from fungwas_stage1.cli import (
     build_rif_residuals,
+    compute_chr_rif_residuals,
     load_loco_predictions,
+    normalize_chr_label,
     resolve_loco_files,
 )
 from fungwas_stage1 import core
@@ -38,6 +40,16 @@ def test_load_loco_predictions_aligns_fid_iid_aliases(tmp_path: Path):
     np.testing.assert_allclose(preds["bmi"]["22"], np.array([0.3, 0.4]))
 
 
+def test_normalize_chr_label_handles_numeric_and_special_labels():
+    assert normalize_chr_label("04") == "4"
+    assert normalize_chr_label("4") == "4"
+    assert normalize_chr_label("chr04") == "4"
+    assert normalize_chr_label("CHR22") == "22"
+    assert normalize_chr_label("x") == "X"
+    assert normalize_chr_label("chrxy") == "XY"
+    assert normalize_chr_label("mt") == "MT"
+
+
 def test_load_loco_predictions_drops_samples_missing_from_loco(tmp_path: Path):
     loco_file = tmp_path / "bmi.loco"
     loco_file.write_text(
@@ -53,6 +65,24 @@ def test_load_loco_predictions_drops_samples_missing_from_loco(tmp_path: Path):
 
     np.testing.assert_array_equal(valid_mask, np.array([True, True, False]))
     np.testing.assert_allclose(preds["bmi"]["22"], np.array([0.3, 0.4]))
+
+
+def test_compute_chr_rif_residuals_accepts_zero_padded_chr_labels():
+    taus = np.array([0.25, 0.5, 0.75])
+    x = np.column_stack([np.ones(4), np.linspace(-1.0, 1.0, 4)])
+    y_values = {"bmi": np.array([1.0, 2.0, 3.0, 4.0])}
+    loco_predictions = {"bmi": {"4": np.array([0.1, 0.2, 0.3, 0.4])}}
+    valid_mask = np.array([True, True, True, True])
+
+    rif_resid_list, q_chr, q_tau_list = compute_chr_rif_residuals(
+        ["bmi"], y_values, x, taus, loco_predictions, "04", valid_mask
+    )
+
+    assert len(rif_resid_list) == 1
+    assert rif_resid_list[0].shape == (4, 3)
+    assert q_chr.shape == x.shape
+    assert len(q_tau_list) == 1
+    assert q_tau_list[0].shape == (3,)
 
 
 def test_loco_adjustment_changes_residualized_rif():
