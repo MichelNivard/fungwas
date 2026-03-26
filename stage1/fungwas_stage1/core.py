@@ -183,11 +183,26 @@ def compute_block_scores(G: np.ndarray, Y_resid: np.ndarray, Q: np.ndarray,
     """
     require_cpp_extension("Block-score computation")
     if HAVE_CPP:
+        G_f = np.asfortranarray(G, dtype=np.float64)
+        Y_f = np.asfortranarray(Y_resid, dtype=np.float64)
+        Q_f = np.asfortranarray(Q, dtype=np.float64)
+        block_ids_i32 = block_ids.astype(np.int32)
+        if hasattr(cpp_ext, 'stage1_block_scores_raw_static'):
+            return cpp_ext.stage1_block_scores_raw_static(
+                G_f,
+                Y_f,
+                Q_f,
+                block_ids_i32,
+                n_blocks,
+                min_mac,
+                min_var,
+                n_threads,
+            )
         return cpp_ext.stage1_block_scores(
-            np.asfortranarray(G, dtype=np.float64),
-            np.asfortranarray(Y_resid, dtype=np.float64),
-            np.asfortranarray(Q, dtype=np.float64),
-            block_ids.astype(np.int32),
+            G_f,
+            Y_f,
+            Q_f,
+            block_ids_i32,
             n_blocks, min_mac, min_var, n_threads
         )
     else:
@@ -230,13 +245,26 @@ def compute_block_scores_multi(G: np.ndarray, RIF_resid_list: list[np.ndarray], 
 
     require_cpp_extension("Multi-phenotype block-score computation")
     if HAVE_CPP and hasattr(cpp_ext, 'stage1_block_scores_multi'):
-        # Use optimized C++ multi-phenotype function
-        # Processes all phenotypes in one pass over G for cache efficiency
+        G_f = np.asfortranarray(G, dtype=np.float64)
+        rif_f = [np.asfortranarray(rif, dtype=np.float64) for rif in RIF_resid_list]
+        Q_f = np.asfortranarray(Q, dtype=np.float64)
+        block_ids_i32 = block_ids.astype(np.int32)
+        if hasattr(cpp_ext, 'stage1_block_scores_multi_raw_static'):
+            return cpp_ext.stage1_block_scores_multi_raw_static(
+                G_f,
+                rif_f,
+                Q_f,
+                block_ids_i32,
+                n_blocks,
+                min_mac,
+                min_var,
+                n_threads,
+            )
         return cpp_ext.stage1_block_scores_multi(
-            np.asfortranarray(G, dtype=np.float64),
-            [np.asfortranarray(rif, dtype=np.float64) for rif in RIF_resid_list],
-            np.asfortranarray(Q, dtype=np.float64),
-            block_ids.astype(np.int32),
+            G_f,
+            rif_f,
+            Q_f,
+            block_ids_i32,
             n_blocks, min_mac, min_var, n_threads
         )
 
