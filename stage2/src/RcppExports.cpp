@@ -11,38 +11,6 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// compute_calibrated_se
-NumericMatrix compute_calibrated_se(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
-
-// compute_param_cov
-NumericMatrix compute_param_cov(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
-RcppExport SEXP _fungwasStage2_compute_calibrated_se(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type cov_vec(cov_vecSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type offsets(offsetsSEXP);
-    Rcpp::traits::input_parameter< NumericMatrix >::type A(ASEXP);
-    Rcpp::traits::input_parameter< int >::type K(KSEXP);
-    rcpp_result_gen = Rcpp::wrap(compute_calibrated_se(cov_vec, offsets, A, K));
-    return rcpp_result_gen;
-END_RCPP
-}
-
-// compute_param_cov
-RcppExport SEXP _fungwasStage2_compute_param_cov(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type cov_vec(cov_vecSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type offsets(offsetsSEXP);
-    Rcpp::traits::input_parameter< NumericMatrix >::type A(ASEXP);
-    Rcpp::traits::input_parameter< int >::type K(KSEXP);
-    rcpp_result_gen = Rcpp::wrap(compute_param_cov(cov_vec, offsets, A, K));
-    return rcpp_result_gen;
-END_RCPP
-}
-
 // fit_multi_models
 NumericMatrix fit_multi_models(const arma::mat& beta_stage1, const arma::mat& se_stage1, const List& W_list, double N, int n_threads);
 RcppExport SEXP _fungwasStage2_fit_multi_models(SEXP beta_stage1SEXP, SEXP se_stage1SEXP, SEXP W_listSEXP, SEXP NSEXP, SEXP n_threadsSEXP) {
@@ -58,7 +26,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-
 // fit_multi_models_tau_cov
 NumericMatrix fit_multi_models_tau_cov(const arma::mat& beta_stage1, const NumericVector& cov_vec, const NumericVector& offsets, const List& W_list, double N, int n_threads);
 RcppExport SEXP _fungwasStage2_fit_multi_models_tau_cov(SEXP beta_stage1SEXP, SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP W_listSEXP, SEXP NSEXP, SEXP n_threadsSEXP) {
@@ -75,12 +42,58 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// compute_calibrated_se
+NumericMatrix compute_calibrated_se(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
+RcppExport SEXP _fungwasStage2_compute_calibrated_se(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type cov_vec(cov_vecSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type offsets(offsetsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type A(ASEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_calibrated_se(cov_vec, offsets, A, K));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compute_param_cov
+NumericMatrix compute_param_cov(NumericVector cov_vec, NumericVector offsets, NumericMatrix A, int K);
+RcppExport SEXP _fungwasStage2_compute_param_cov(SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP ASEXP, SEXP KSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type cov_vec(cov_vecSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type offsets(offsetsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type A(ASEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_param_cov(cov_vec, offsets, A, K));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compute_gls_param_gwas
+List compute_gls_param_gwas(const arma::mat& beta_stage1, NumericVector cov_vec, NumericVector offsets, NumericMatrix W, bool return_cov, double gls_ridge, int n_threads);
+RcppExport SEXP _fungwasStage2_compute_gls_param_gwas(SEXP beta_stage1SEXP, SEXP cov_vecSEXP, SEXP offsetsSEXP, SEXP WSEXP, SEXP return_covSEXP, SEXP gls_ridgeSEXP, SEXP n_threadsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type beta_stage1(beta_stage1SEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type cov_vec(cov_vecSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type offsets(offsetsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type W(WSEXP);
+    Rcpp::traits::input_parameter< bool >::type return_cov(return_covSEXP);
+    Rcpp::traits::input_parameter< double >::type gls_ridge(gls_ridgeSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_gls_param_gwas(beta_stage1, cov_vec, offsets, W, return_cov, gls_ridge, n_threads));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_fungwasStage2_compute_calibrated_se", (DL_FUNC) &_fungwasStage2_compute_calibrated_se, 4},
-    {"_fungwasStage2_compute_param_cov", (DL_FUNC) &_fungwasStage2_compute_param_cov, 4},
     {"_fungwasStage2_fit_multi_models", (DL_FUNC) &_fungwasStage2_fit_multi_models, 5},
     {"_fungwasStage2_fit_multi_models_tau_cov", (DL_FUNC) &_fungwasStage2_fit_multi_models_tau_cov, 6},
+    {"_fungwasStage2_compute_calibrated_se", (DL_FUNC) &_fungwasStage2_compute_calibrated_se, 4},
+    {"_fungwasStage2_compute_param_cov", (DL_FUNC) &_fungwasStage2_compute_param_cov, 4},
+    {"_fungwasStage2_compute_gls_param_gwas", (DL_FUNC) &_fungwasStage2_compute_gls_param_gwas, 7},
     {NULL, NULL, 0}
 };
 

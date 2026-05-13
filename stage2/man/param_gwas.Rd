@@ -8,8 +8,13 @@ param_gwas(
   stage1,
   transform = c("custom_W", "two_normal"),
   transform_args = list(),
-  se_mode = c("diagonal", "plugin_cor", "dwls"),
-  plugin_R = NULL
+  se_mode = c("diagonal", "plugin_cor", "dwls", "tau_cov"),
+  plugin_R = NULL,
+  cov_data = NULL,
+  tau_cov_estimator = c("gls", "ols"),
+  gls_ridge = 1e-08,
+  n_threads = 1L,
+  return_cov = c("none", "upper", "full", "mashr")
 )
 }
 \arguments{
@@ -28,9 +33,28 @@ param_gwas(
 \item \code{"diagonal"} – assume independence across taus (fast).
 \item \code{"plugin_cor"} – plugin correlation with near-PD repair.
 \item \code{"dwls"} – diagonal weighted least squares (Q test calibrated).
+\item \code{"tau_cov"} – use per-SNP jackknife covariance from Stage 1 (most accurate).
 }}
 
 \item{plugin_R}{Optional T x T correlation matrix for \code{"plugin_cor"}.}
+
+\item{cov_data}{For \code{se_mode = "tau_cov"}: either a list with \code{cov_vec}
+(numeric vector of covariance data) and \code{offsets} (byte offsets per SNP),
+or NULL to use diagonal fallback.}
+
+\item{tau_cov_estimator}{Estimator used when \code{se_mode = "tau_cov"} and
+covariance data are available. \code{"gls"} uses the per-SNP covariance for
+generalized least squares; \code{"ols"} preserves the fixed unweighted
+projection with covariance-propagated SEs.}
+
+\item{gls_ridge}{Relative diagonal ridge added only when a per-SNP covariance
+matrix cannot be inverted for GLS.}
+
+\item{n_threads}{Number of OpenMP threads for GLS tau-covariance estimation.}
+
+\item{return_cov}{Optional output of parameter covariance derived from Stage 1
+tau covariance. One of \code{"none"} (default), \code{"upper"} (upper-triangle
+matrix), \code{"full"} (K x K x P array), or \code{"mashr"} (Bhat/Shat/V list).}
 }
 \value{
 A list with the following elements:

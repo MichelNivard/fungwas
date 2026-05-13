@@ -149,6 +149,13 @@ quantile_gwas <- function(
 #' @param cov_data For \code{se_mode = "tau_cov"}: either a list with \code{cov_vec} 
 #'   (numeric vector of covariance data) and \code{offsets} (byte offsets per SNP),
 #'   or NULL to use diagonal fallback.
+#' @param tau_cov_estimator Estimator used when \code{se_mode = "tau_cov"} and
+#'   covariance data are available. \code{"gls"} uses the per-SNP covariance for
+#'   generalized least squares; \code{"ols"} preserves the fixed unweighted
+#'   projection with covariance-propagated SEs.
+#' @param gls_ridge Relative diagonal ridge added only when a per-SNP covariance
+#'   matrix cannot be inverted for GLS.
+#' @param n_threads Number of OpenMP threads for GLS tau-covariance estimation.
 #' @param return_cov Optional output of parameter covariance derived from Stage 1
 #'   tau covariance. One of \code{"none"} (default), \code{"upper"} (upper-triangle
 #'   matrix), \code{"full"} (K x K x P array), or \code{"mashr"} (Bhat/Shat/V list).
@@ -169,10 +176,14 @@ param_gwas <- function(
   se_mode = c("diagonal", "plugin_cor", "dwls", "tau_cov"),
   plugin_R = NULL,
   cov_data = NULL,
+  tau_cov_estimator = c("gls", "ols"),
+  gls_ridge = 1e-8,
+  n_threads = 1L,
   return_cov = c("none", "upper", "full", "mashr")
 ) {
   transform <- match.arg(transform)
   se_mode   <- match.arg(se_mode)
+  tau_cov_estimator <- match.arg(tau_cov_estimator)
   return_cov <- match.arg(return_cov)
 
   taus    <- stage1$taus
@@ -271,6 +282,23 @@ if (se_mode == "diagonal") {
     A2 <- A * A
     Vb <- SE_tau * SE_tau
     SE_params <- sqrt(A2 %*% Vb)
+  } else if (tau_cov_estimator == "gls") {
+    gls_fit <- compute_gls_param_gwas(
+      beta_stage1 = Q_slope,
+      cov_vec = cov_data$cov_vec,
+      offsets = cov_data$offsets,
+      W = W,
+      return_cov = return_cov != "none",
+      gls_ridge = gls_ridge,
+      n_threads = n_threads
+    )
+    params <- gls_fit$params
+    rownames(params) <- colnames(W)
+    colnames(params) <- colnames(Q_slope)
+    SE_params <- gls_fit$se
+    rownames(SE_params) <- colnames(W)
+    colnames(SE_params) <- colnames(Q_slope)
+    Q_stat <- gls_fit$Q
   } else {
     # Use C++ helper for fast computation
     se_mat <- compute_calibrated_se(
@@ -283,11 +311,13 @@ if (se_mode == "diagonal") {
     rownames(SE_params) <- colnames(W)
   }
   
-  # Q statistic (using diagonal approximation)
-  for (j in seq_len(P)) {
-    resid_j <- Q_slope[, j] - W %*% params[, j]
-    var_j   <- SE_tau[, j]^2
-    Q_stat[j] <- sum((resid_j^2) / pmax(var_j, 1e-12))
+  if (is.null(cov_data) || tau_cov_estimator == "ols") {
+    # Q statistic (using diagonal approximation)
+    for (j in seq_len(P)) {
+      resid_j <- Q_slope[, j] - W %*% params[, j]
+      var_j   <- SE_tau[, j]^2
+      Q_stat[j] <- sum((resid_j^2) / pmax(var_j, 1e-12))
+    }
   }
 }
 
@@ -297,6 +327,21 @@ if (se_mode == "diagonal") {
   if (return_cov != "none") {
     if (se_mode != "tau_cov" || is.null(cov_data)) {
       warning("return_cov requires se_mode = 'tau_cov' with cov_data; returning NULL")
+    } else if (tau_cov_estimator == "gls") {
+      param_cov_upper <- gls_fit$param_cov_upper
+      if (!is.null(colnames(W))) {
+        colnames(param_cov_upper) <- .param_cov_upper_names(colnames(W))
+      }
+      rownames(param_cov_upper) <- colnames(Q_slope)
+      if (return_cov == "full") {
+        param_cov_full <- .param_cov_upper_to_array(
+          param_cov_upper,
+          K = nrow(params),
+          param_names = colnames(W)
+        )
+      } else if (return_cov == "mashr") {
+        mashr_inputs <- mashr_inputs_from_cov(params, param_cov_upper, mode = "array")
+      }
     } else {
       param_cov_upper <- compute_param_cov(
         cov_vec = cov_data$cov_vec,
@@ -332,6 +377,7 @@ if (se_mode == "diagonal") {
   if (return_cov == "full") out$param_cov <- param_cov_full
   if (return_cov == "mashr") out$mashr <- mashr_inputs
   if (se_mode == "plugin_cor") out$R_tau <- R_tau
+  if (se_mode == "tau_cov") out$tau_cov_estimator <- tau_cov_estimator
   out
 }
 
@@ -482,10 +528,14 @@ param_gwas_from_file <- function(
   rtau_file = NULL,
   return_cov = c("none", "upper", "full", "mashr"),
   param_cov_file = NULL,
-  unsafe_skip_cov_ids = FALSE
+  unsafe_skip_cov_ids = FALSE,
+  tau_cov_estimator = c("gls", "ols"),
+  gls_ridge = 1e-8,
+  n_threads = 1L
 ) {
   se_mode <- match.arg(se_mode)
   return_cov <- match.arg(return_cov)
+  tau_cov_estimator <- match.arg(tau_cov_estimator)
   
   if (!requireNamespace("data.table", quietly = TRUE)) {
     stop("data.table package required for param_gwas_from_file")
@@ -557,6 +607,9 @@ param_gwas_from_file <- function(
     se_mode = se_mode,
     plugin_R = plugin_R,
     cov_data = cov_data,
+    tau_cov_estimator = tau_cov_estimator,
+    gls_ridge = gls_ridge,
+    n_threads = n_threads,
     return_cov = return_cov
   )
   
